@@ -2714,7 +2714,7 @@ function submitFeedback() {
     `--\nנשלח מדמו CBME · ${new Date().toLocaleString('he-IL')}`
   );
   // Replace with the real recipient email of the person collecting feedback:
-  const recipient = 'YOUR-EMAIL@rambam.health.gov.il';
+  const recipient = 'R_ILUZ@rambam.health.gov.il';
   window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
 
   closeFeedbackModal();
