@@ -543,7 +543,6 @@ async function requestMagicLink(email) {
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'request_login',
         secret: SHARED_SECRET,
@@ -567,7 +566,6 @@ async function verifyMagicCode(email, code) {
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'verify_login',
         secret: SHARED_SECRET,
@@ -611,7 +609,6 @@ async function getData() {
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'get_data',
         secret: SHARED_SECRET,
@@ -637,7 +634,6 @@ async function submitEvaluation(evaluationData) {
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'submit_evaluation',
         secret: SHARED_SECRET,
@@ -661,7 +657,6 @@ async function logToAudit(action, details) {
   try {
     await fetch(WEB_APP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'log_action',
         secret: SHARED_SECRET,
@@ -3241,7 +3236,6 @@ async function submitFeedback() {
     try {
       const res = await fetch(FEEDBACK_FORMSPREE_URL, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body:    JSON.stringify(payload),
       });
 
