@@ -546,7 +546,7 @@ async function requestMagicLink(email) {
       body: JSON.stringify({
         action: 'request_login',
         secret: SHARED_SECRET,
-        email: email.toLowerCase(),
+        data: { email: email.toLowerCase() },
       }),
     });
     
@@ -569,8 +569,7 @@ async function verifyMagicCode(email, code) {
       body: JSON.stringify({
         action: 'verify_login',
         secret: SHARED_SECRET,
-        email: email.toLowerCase(),
-        code: code.trim(),
+        data: { email: email.toLowerCase(), code: code.trim() },
       }),
     });
     
@@ -613,6 +612,7 @@ async function getData() {
         action: 'get_data',
         secret: SHARED_SECRET,
         token: sessionToken,
+        data: { type: 'all' },
       }),
     });
     
@@ -638,7 +638,7 @@ async function submitEvaluation(evaluationData) {
         action: 'submit_evaluation',
         secret: SHARED_SECRET,
         token: sessionToken,
-        evaluation: evaluationData,
+        data: evaluationData,
       }),
     });
     
@@ -661,8 +661,7 @@ async function logToAudit(action, details) {
         action: 'log_action',
         secret: SHARED_SECRET,
         token: sessionToken,
-        logAction: action,
-        logDetails: details,
+        data: { logAction: action, logDetails: details },
       }),
     });
   } catch (err) {
