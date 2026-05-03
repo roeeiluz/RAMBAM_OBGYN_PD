@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Cache control: critical for pilot — prevents stale versions on user devices -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- Build version: 1.5.1 (2026-05-03) — CORS fix + data wrapping -->
 <title>CBME רמב"ם – מערכת הערכת מתמחים | דמו לסקירה</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -3312,6 +3317,9 @@ if (initializeSession()) {
   showLoginScreen();
 }
 </script>
+
+<!-- Version indicator (bottom-left, small, non-intrusive) -->
+<div id="version-indicator" style="position:fixed;bottom:6px;left:6px;font-size:10px;color:#9ca3af;font-family:monospace;z-index:9999;pointer-events:none;user-select:none;">v1.5.1 · 2026-05-03</div>
 
 </body>
 </html>
