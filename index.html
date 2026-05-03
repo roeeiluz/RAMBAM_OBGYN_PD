@@ -35,11 +35,42 @@
 </head>
 <body class="text-gray-900">
 
-<!-- ─── ROLE SWITCHER (top bar – demo only) ─────────────────────── -->
-<div class="role-banner sticky top-0 z-50 px-4 py-2 flex items-center gap-3 flex-wrap">
-  <div class="text-xs text-amber-900 font-medium">🎭 מצב דמו – החלף תפקיד:</div>
-  <div class="flex gap-1.5 flex-wrap" id="role-switcher"></div>
-  <div class="mr-auto text-xs text-amber-900" id="current-user-info"></div>
+<!-- ─── LOGIN SCREEN ─────────────────────────────────────────────── -->
+<div id="login-screen" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center p-4">
+  <div class="max-w-md w-full">
+    <div class="text-center mb-8">
+      <div class="text-4xl font-bold text-blue-600 mb-2">CBME</div>
+      <p class="text-sm text-gray-600">מערכת הערכת מתמחים · רמב"ם</p>
+    </div>
+    
+    <!-- Step 1: Request code -->
+    <div id="login-step-1" class="space-y-4">
+      <div>
+        <label class="text-sm font-medium text-gray-700 block mb-1.5">כתובת אימייל</label>
+        <input type="email" id="login-email" placeholder="name@rambam.health.gov.il" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+      </div>
+      <button onclick="handleRequestCode()" class="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">שלח קוד</button>
+      <div id="login-error-1" class="text-xs text-red-600 text-center hidden"></div>
+    </div>
+    
+    <!-- Step 2: Verify code -->
+    <div id="login-step-2" class="space-y-4 hidden">
+      <p class="text-xs text-gray-600 text-center">קוד 6 ספרות נשלח ל: <strong id="login-email-display"></strong></p>
+      <div>
+        <label class="text-sm font-medium text-gray-700 block mb-1.5">קוד אימות</label>
+        <input type="text" id="login-code" placeholder="000000" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-center tracking-widest" maxlength="6">
+      </div>
+      <button onclick="handleVerifyCode()" class="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">אימות</button>
+      <button onclick="handleBackToEmail()" class="w-full border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">חזרה</button>
+      <div id="login-error-2" class="text-xs text-red-600 text-center hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOP BAR (logged in only) ─────────────────────────────────── -->
+<div id="top-bar" class="hidden sticky top-0 z-50 px-4 py-2 bg-blue-50 border-b border-gray-200 flex items-center gap-3">
+  <div class="text-xs text-gray-700">מחובר: <strong id="user-email-display"></strong></div>
+  <button onclick="logout()" class="mr-auto text-xs text-blue-600 hover:text-blue-800 font-medium">התנתקות</button>
 </div>
 
 <div id="app" class="flex min-h-screen">
@@ -461,7 +492,320 @@
 // ═══════════════════════════════════════════════════════════════════
 const TODAY = new Date('2026-04-26');
 
+// ═══════════════════════════════════════════════════════════════════
+// STAGE 3 — MAGIC LINK + DRIVE INTEGRATION
+// ═══════════════════════════════════════════════════════════════════
+
+// Web App Configuration (from Stage 2 deployment)
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxCmhq-KkX9hXT45sZJCmtCaJn_Q4hpzs-VS5rdOfXWtgGUq3czfTFkLk2djJP0lxjR/exec';
+const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
+
+// Session management
+let sessionToken = null;
+let currentUserEmail = null;
+let currentUserRole = null;
+
+function initializeSession() {
+  try {
+    const stored = localStorage.getItem('cbme_session_token');
+    const expiresAt = localStorage.getItem('cbme_session_expires');
+    const email = localStorage.getItem('cbme_user_email');
+    const role = localStorage.getItem('cbme_user_role');
+    
+    if (stored && expiresAt && email && new Date().getTime() < parseInt(expiresAt)) {
+      sessionToken = stored;
+      currentUserEmail = email;
+      currentUserRole = role;
+      return true;
+    } else {
+      clearSession();
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+}
+
+function clearSession() {
+  sessionToken = null;
+  currentUserEmail = null;
+  currentUserRole = null;
+  try {
+    localStorage.removeItem('cbme_session_token');
+    localStorage.removeItem('cbme_session_expires');
+    localStorage.removeItem('cbme_user_email');
+    localStorage.removeItem('cbme_user_role');
+  } catch (e) {}
+}
+
+// Magic Link flow
+async function requestMagicLink(email) {
+  try {
+    const res = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'request_login',
+        secret: SHARED_SECRET,
+        email: email.toLowerCase(),
+      }),
+    });
+    
+    const data = await res.json();
+    if (data.ok) {
+      return { success: true, message: 'קוד נשלח לאימייל שלך' };
+    } else {
+      return { success: false, message: data.message || 'שגיאה בשליחה' };
+    }
+  } catch (err) {
+    console.error('Magic Link request error:', err);
+    return { success: false, message: 'שגיאת רשת. בדוק את החיבור.' };
+  }
+}
+
+async function verifyMagicCode(email, code) {
+  try {
+    const res = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'verify_login',
+        secret: SHARED_SECRET,
+        email: email.toLowerCase(),
+        code: code.trim(),
+      }),
+    });
+    
+    const data = await res.json();
+    if (data.ok) {
+      // Store session (24 hours)
+      const expiresAt = new Date().getTime() + 24 * 60 * 60 * 1000;
+      try {
+        localStorage.setItem('cbme_session_token', data.token);
+        localStorage.setItem('cbme_session_expires', expiresAt.toString());
+        localStorage.setItem('cbme_user_email', email.toLowerCase());
+        localStorage.setItem('cbme_user_role', data.role || 'resident');
+      } catch (e) {}
+      
+      sessionToken = data.token;
+      currentUserEmail = email.toLowerCase();
+      currentUserRole = data.role || 'resident';
+      
+      return { success: true, role: data.role };
+    } else {
+      return { success: false, message: data.message || 'קוד שגוי או פג תוקף' };
+    }
+  } catch (err) {
+    console.error('Magic Link verification error:', err);
+    return { success: false, message: 'שגיאת רשת' };
+  }
+}
+
+// Get data from Drive (procedures, exams, etc.)
+async function getData() {
+  if (!sessionToken) {
+    console.error('No session token');
+    return { ok: false };
+  }
+  
+  try {
+    const res = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get_data',
+        secret: SHARED_SECRET,
+        token: sessionToken,
+      }),
+    });
+    
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.error('Get data error:', err);
+    return { ok: false, message: 'שגיאת רשת' };
+  }
+}
+
+// Submit evaluation to Drive
+async function submitEvaluation(evaluationData) {
+  if (!sessionToken) {
+    showToast('שגיאה: אין session. התחבר מחדש.', 'error');
+    return { success: false };
+  }
+  
+  try {
+    const res = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'submit_evaluation',
+        secret: SHARED_SECRET,
+        token: sessionToken,
+        evaluation: evaluationData,
+      }),
+    });
+    
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.error('Submit evaluation error:', err);
+    return { ok: false, message: 'שגיאת רשת' };
+  }
+}
+
+// Log action to audit trail
+async function logToAudit(action, details) {
+  if (!sessionToken) return;
+  
+  try {
+    await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'log_action',
+        secret: SHARED_SECRET,
+        token: sessionToken,
+        logAction: action,
+        logDetails: details,
+      }),
+    });
+  } catch (err) {
+    console.warn('Audit log error:', err);
+  }
+}
+
+function logout() {
+  clearSession();
+  showLoginScreen();
+}
+
+// Magic Link UI Handlers
+let tempEmail = null;
+
+function showLoginScreen() {
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('top-bar').classList.add('hidden');
+  document.getElementById('login-step-1').classList.remove('hidden');
+  document.getElementById('login-step-2').classList.add('hidden');
+  tempEmail = null;
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-code').value = '';
+  clearErrors();
+}
+
+function showAppScreen() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('top-bar').classList.remove('hidden');
+  document.getElementById('user-email-display').textContent = currentUserEmail;
+  
+  // Initialize app (instead of buildRoleSwitcher)
+  currentRole = currentUserRole || 'resident';
+  currentScreen = NAV_BY_ROLE[currentRole][0].id;
+  
+  // Load data from Drive
+  loadAppData();
+  
+  buildAll();
+  renderScreen();
+}
+
+// Store fetched data globally
+let driveData = {
+  procedures: {},
+  exams: {},
+};
+
+async function loadAppData() {
+  const data = await getData();
+  if (data.ok) {
+    driveData.procedures = data.procedures || {};
+    driveData.exams = data.exams || {};
+    console.log('Data loaded from Drive:', driveData);
+    showToast('נתונים טענו בהצלחה', 'success');
+  } else {
+    console.warn('Failed to load data, using fallback:', data.message);
+    // Fallback to mock data if Drive sync fails
+    showToast('שימוש בנתונים מוטבעים', 'info');
+  }
+}
+
+function clearErrors() {
+  document.getElementById('login-error-1').classList.add('hidden');
+  document.getElementById('login-error-2').classList.add('hidden');
+}
+
+async function handleRequestCode() {
+  const email = document.getElementById('login-email').value.trim();
+  const errorDiv = document.getElementById('login-error-1');
+  
+  if (!email || !email.includes('@')) {
+    errorDiv.textContent = 'אנא הזן כתובת אימייל תקינה';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
+  
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'שליחה...';
+  
+  const result = await requestMagicLink(email);
+  
+  if (result.success) {
+    tempEmail = email;
+    document.getElementById('login-email-display').textContent = email;
+    document.getElementById('login-step-1').classList.add('hidden');
+    document.getElementById('login-step-2').classList.remove('hidden');
+    document.getElementById('login-code').focus();
+  } else {
+    errorDiv.textContent = result.message;
+    errorDiv.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'שלח קוד';
+  }
+}
+
+async function handleVerifyCode() {
+  if (!tempEmail) return;
+  
+  const code = document.getElementById('login-code').value.trim();
+  const errorDiv = document.getElementById('login-error-2');
+  
+  if (!code || code.length !== 6 || !/^\d+$/.test(code)) {
+    errorDiv.textContent = 'אנא הזן קוד בן 6 ספרות';
+    errorDiv.classList.remove('hidden');
+    return;
+  }
+  
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'אימות...';
+  
+  const result = await verifyMagicCode(tempEmail, code);
+  
+  if (result.success) {
+    showAppScreen();
+  } else {
+    errorDiv.textContent = result.message;
+    errorDiv.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'אימות';
+  }
+}
+
+function handleBackToEmail() {
+  document.getElementById('login-step-2').classList.add('hidden');
+  document.getElementById('login-step-1').classList.remove('hidden');
+  document.getElementById('login-email').focus();
+  clearErrors();
+}
+
 const RESIDENTS_RAW = [
+  // DEMO RESIDENT FOR TESTING (flagged with ★ comment)
+  {name:'רן דוגמן',start:'2023-06'}, // ★ DEMO RESIDENT — dr.iluz.roee@gmail.com
+  
   {name:'רועי גולדפריינד',start:'2020-10'},{name:'אפרת ליבוביץ',start:'2021-01'},
   {name:'אמיר וולפוביץ',start:'2021-05'},{name:'נמרוד לוברמן',start:'2021-06'},
   {name:'היבא אבו ראס',start:'2021-11'},{name:'גילי בוחניק',start:'2022-03'},
@@ -489,6 +833,72 @@ function mockScore(name, pgy) {
   const base = 2.6 + pgy * 0.22;
   const variance = ((seed * 7) % 100) / 100 * 1.4 - 0.4;
   return Math.round(Math.max(2.0, Math.min(4.9, base + variance)) * 10) / 10;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DEMO SEED DATA — 3 attending evaluations for רן דוגמן
+// ═══════════════════════════════════════════════════════════════════
+const DEMO_SEED_EVALUATIONS = [
+  {
+    type: 'micro',
+    timestamp: '2026-04-25T14:30:00Z',
+    evaluator: 'r_iluz@rambam.health.gov.il',
+    evaluatorRole: 'attending',
+    evaluatorName: 'ד"ר אמנון לבני',
+    residentId: 'r_רן_דוגמן',
+    residentName: 'רן דוגמן',
+    eventType: 'cs',
+    epaScores: { 'epa-1': 4, 'epa-2': 4, 'epa-3': 3 },
+    visibleFeedback: 'ביצוע טוב. כניסה בטוחה, סגירה מדויקת. המשיך כך.',
+    privateFeedback: 'מתמחה חזק. שיפור משמעותי בחודשים האחרונים.',
+  },
+  {
+    type: 'micro',
+    timestamp: '2026-04-27T10:15:00Z',
+    evaluator: 'r_iluz@rambam.health.gov.il',
+    evaluatorRole: 'attending',
+    evaluatorName: 'ד"ר מיכל ישראלי',
+    residentId: 'r_רן_דוגמן',
+    residentName: 'רן דוגמן',
+    eventType: 'delivery',
+    epaScores: { 'epa-1': 3, 'epa-2': 3, 'epa-3': 4 },
+    visibleFeedback: 'קומוניקציה טובה עם משפחה. טיול מסודר בחדר הלידה.',
+    privateFeedback: 'יכול להיות יותר דומיננטי בהחלטות קליניות. צפוי להשתפר.',
+  },
+  {
+    type: 'macro',
+    timestamp: '2026-05-01T09:00:00Z',
+    evaluator: 'r_iluz@rambam.health.gov.il',
+    evaluatorRole: 'attending',
+    evaluatorName: 'ד"ר יוסי כהן',
+    mode: 'attending',
+    residentId: 'r_רן_דוגמן',
+    residentName: 'רן דוגמן',
+    competencies: {
+      pc: { score: 4, comment: 'טיפול קליני טוב. עם קצת עזרה בהחלטות מורכבות.' },
+      mk: { score: 3, comment: 'ידע בסיסי קיים. צריך עיומק בקונספטים.' },
+      prof: { score: 4, comment: 'התנהגות מקצועית בכל הזמן.' },
+      ics: { score: 4, comment: 'קשר טוב עם חולות וצוות.' },
+      pbli: { score: 3, comment: 'אקטיבי בסיורים והשתמות. יכול להיות עצמאי יותר.' },
+      sbp: { score: 3, comment: 'הבנה של מערכת בסיסית. צריך להרחיב.' },
+    },
+    privateFeedback: 'מתמחה בעל פוטנציאל גבוה. צריך דחיפה להיות יותר עצמאי.',
+  },
+];
+
+async function seedDemoData() {
+  if (!sessionToken || currentUserRole !== 'attending') return;
+  
+  console.log('Seeding demo evaluations for רן דוגמן...');
+  for (const eval of DEMO_SEED_EVALUATIONS) {
+    const result = await submitEvaluation(eval);
+    if (result.ok) {
+      console.log('✓ Demo evaluation seeded:', eval.eventType || eval.mode);
+    } else {
+      console.warn('✗ Failed to seed:', eval.eventType || eval.mode);
+    }
+  }
+  showToast('דמו נתונים טופלו בהצלחה', 'success');
 }
 
 const RESIDENTS = RESIDENTS_RAW.map(r => {
@@ -572,15 +982,11 @@ let currentScreen = 'pd-dashboard';
 // NAVIGATION
 // ═══════════════════════════════════════════════════════════════════
 function buildRoleSwitcher() {
-  const container = document.getElementById('role-switcher');
-  container.innerHTML = ROLES.map(r => `
-    <button onclick="switchRole('${r.id}')" class="role-btn text-xs px-3 py-1 rounded-full border transition-colors ${currentRole === r.id ? 'bg-amber-600 text-white border-amber-700' : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-50'}" data-role="${r.id}">
-      ${r.label}
-    </button>
-  `).join('');
-
-  const role = ROLES.find(r => r.id === currentRole);
-  document.getElementById('current-user-info').innerHTML = `מחובר כ: <strong>${role.name}</strong>`;
+  // Legacy function - no longer needed with Magic Link login
+  // Just update top-bar if visible
+  if (sessionToken && document.getElementById('top-bar')) {
+    document.getElementById('user-email-display').textContent = currentUserEmail;
+  }
 }
 
 function switchRole(roleId) {
@@ -1487,7 +1893,10 @@ function renderMicroForm(role) {
         <textarea class="w-full text-sm border border-red-200 rounded-lg px-3 py-2 h-16 bg-white focus:outline-none focus:ring-2 focus:ring-red-400" placeholder="הערה פרטית – אופציונלי..."></textarea>
       </div>
 
-      <button onclick="submitMicroEval()" class="w-full px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">שלח הערכה</button>
+      <div class="flex gap-2">
+        <button onclick="submitMicroEval()" class="flex-1 px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">שלח הערכה</button>
+        <button onclick="seedDemoData()" class="px-4 py-3 bg-gray-400 text-white text-xs font-medium rounded-lg hover:bg-gray-500" title="טעינת דמו">★ דמו</button>
+      </div>
     </div>
   `;
 
@@ -1558,8 +1967,51 @@ function renderEpaItems(epas) {
 }
 
 function submitMicroEval() {
-  showToast('הערכה נשלחה. הפידבק הגלוי הועבר למתמחה, ההערה הפרטית למנהלת התוכנית.', 'success');
-  setTimeout(() => navigateTo('attending-history'), 1200);
+  // Collect form data
+  const residentId = document.getElementById('micro-resident')?.value;
+  const visibleFeedback = document.querySelectorAll('textarea')[0]?.value || '';
+  const privateFeedback = document.querySelectorAll('textarea')[1]?.value || '';
+  
+  // Collect EPA scores
+  const epaScores = {};
+  document.querySelectorAll('.likert-btn.selected').forEach(btn => {
+    const itemId = btn.dataset.itemId || btn.parentElement.id;
+    const score = parseInt(btn.textContent);
+    epaScores[itemId] = score;
+  });
+  
+  // Get selected event
+  const selectedEvent = document.querySelector('.event-btn[style*="border-blue"]');
+  const eventType = selectedEvent?.dataset.event || '';
+  
+  // Build evaluation object
+  const evaluation = {
+    type: 'micro',
+    timestamp: new Date().toISOString(),
+    evaluator: currentUserEmail,
+    evaluatorRole: currentUserRole,
+    residentId: residentId,
+    eventType: eventType,
+    epaScores: epaScores,
+    visibleFeedback: visibleFeedback,
+    privateFeedback: privateFeedback,
+  };
+  
+  // Submit to Drive
+  (async () => {
+    const result = await submitEvaluation(evaluation);
+    if (result.ok) {
+      showToast('הערכה נשלחה בהצלחה. הפידבק הגלוי הועבר למתמחה, ההערה הפרטית למנהלת התוכנית.', 'success');
+      await logToAudit('submit_micro_evaluation', {
+        resident: residentId,
+        eventType: eventType,
+        haPrivateNote: !!privateFeedback,
+      });
+      setTimeout(() => navigateTo('attending-history'), 1500);
+    } else {
+      showToast('שגיאה בשליחה: ' + (result.message || 'נסה שוב'), 'error');
+    }
+  })();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2186,10 +2638,65 @@ function saveDraftMacro() {
 }
 
 function submitMacroEval(mode) {
-  const msg = mode === 'attending'
-    ? 'ההערכה נשלחה למנהלת תוכנית. תוצג בעמוד "הערכות תקופתיות" שלה לסיכום סופי.'
-    : 'ההערכה העצמית נשמרה. תוצג למנהלת תוכנית בעת סיכום ההערכה התקופתית.';
-  showToast(msg, 'success');
+  // Collect form data
+  const competencies = {};
+  document.querySelectorAll('[data-competency]').forEach(el => {
+    const compKey = el.dataset.competency;
+    const scoreBtn = el.querySelector('.likert-btn.selected');
+    const comment = el.querySelector('textarea')?.value || '';
+    if (scoreBtn) {
+      competencies[compKey] = {
+        score: parseInt(scoreBtn.textContent),
+        comment: comment,
+      };
+    }
+  });
+  
+  // Get resident (if viewing from PD or selecting)
+  const residentSelect = document.getElementById('macro-resident');
+  const residentId = residentSelect?.value || CURRENT_RESIDENT?.id || '';
+  
+  // Get wellbeing text (for resident self-eval only)
+  const wellbeing = mode === 'resident' 
+    ? document.querySelector('textarea[placeholder*="איך אני מרגיש"]')?.value || ''
+    : '';
+  
+  // Get private note (for attending/chief only)
+  const privateFeedback = (mode === 'attending' || mode === 'chief')
+    ? Array.from(document.querySelectorAll('textarea')).find(ta => 
+        ta.placeholder?.includes('הערה פרטית'))?.value || ''
+    : '';
+  
+  // Build evaluation object
+  const evaluation = {
+    type: 'macro',
+    mode: mode, // 'resident', 'attending', 'chief', or 'pd'
+    timestamp: new Date().toISOString(),
+    evaluator: currentUserEmail,
+    evaluatorRole: currentUserRole,
+    residentId: residentId,
+    competencies: competencies,
+    wellbeing: wellbeing,
+    privateFeedback: privateFeedback,
+  };
+  
+  // Submit to Drive
+  (async () => {
+    const result = await submitEvaluation(evaluation);
+    if (result.ok) {
+      const msg = mode === 'attending'
+        ? 'ההערכה נשלחה למנהלת תוכנית. תוצג בעמוד "הערכות תקופתיות" שלה לסיכום סופי.'
+        : 'ההערכה העצמית נשמרה. תוצג למנהלת תוכנית בעת סיכום ההערכה התקופתית.';
+      showToast(msg, 'success');
+      await logToAudit('submit_macro_evaluation', {
+        resident: residentId,
+        mode: mode,
+        competencyCount: Object.keys(competencies).length,
+      });
+    } else {
+      showToast('שגיאה בשליחה: ' + (result.message || 'נסה שוב'), 'error');
+    }
+  })();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2689,7 +3196,25 @@ function setFbRating(n) {
   });
 }
 
-function submitFeedback() {
+// ═══════════════════════════════════════════════════════════════════
+// FEEDBACK CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════
+// Choose ONE of the following:
+//
+// Option A (recommended):  Formspree — free service that emails you directly
+//   1. Sign up at https://formspree.io (free up to 50 submissions/month)
+//   2. Create a new form, copy your endpoint URL
+//   3. Paste it below as FEEDBACK_FORMSPREE_URL
+//
+// Option B (fallback):  mailto: opens user's email client
+//   Just set FEEDBACK_EMAIL to your real email address
+//   FEEDBACK_FORMSPREE_URL must be empty for this mode to activate
+//
+// ═══════════════════════════════════════════════════════════════════
+const FEEDBACK_FORMSPREE_URL = ''; // e.g. 'https://formspree.io/f/abcd1234'
+const FEEDBACK_EMAIL = 'YOUR-EMAIL@rambam.health.gov.il';
+
+async function submitFeedback() {
   const role = document.getElementById('fb-role').value;
   const text = document.getElementById('fb-text').value.trim();
   const name = document.getElementById('fb-name').value.trim();
@@ -2700,27 +3225,57 @@ function submitFeedback() {
     return;
   }
 
-  // ──────────────────────────────────────────────────────────────────
-  // In production, this should POST to a real backend or service like
-  // Formspree / Google Form / Tally. For the demo, we open mailto:
-  // ──────────────────────────────────────────────────────────────────
-  const subject = encodeURIComponent('משוב על דמו CBME');
+  // Build payload
+  const payload = {
+    role:       role || '—',
+    name:       name || '—',
+    rating:     fbRating ? `${fbRating}/5` : '—',
+    screens:    screens.join(', ') || '—',
+    feedback:   text || '—',
+    timestamp:  new Date().toLocaleString('he-IL'),
+    _subject:   `משוב על דמו CBME${name ? ' מאת ' + name : ''}`,
+  };
+
+  // ── OPTION A: Formspree (auto-email, no user action needed) ─────────
+  if (FEEDBACK_FORMSPREE_URL) {
+    try {
+      const res = await fetch(FEEDBACK_FORMSPREE_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        closeFeedbackModal();
+        showToast('תודה! המשוב נשלח בהצלחה.', 'success');
+        resetFeedbackForm();
+      } else {
+        showToast('שגיאה בשליחה. נסה שוב או שלח במייל ישירות.', 'error');
+      }
+    } catch (err) {
+      showToast('שגיאת רשת. בדוק את החיבור ונסה שוב.', 'error');
+    }
+    return;
+  }
+
+  // ── OPTION B: Fallback to mailto: (opens user's email client) ───────
+  const subject = encodeURIComponent(payload._subject);
   const body = encodeURIComponent(
-    `תפקיד: ${role || '—'}\n` +
-    `שם: ${name || '—'}\n` +
-    `דירוג: ${fbRating || '—'}/5\n` +
-    `מסכים שעניינו: ${screens.join(', ') || '—'}\n\n` +
-    `הערות:\n${text || '—'}\n\n` +
-    `--\nנשלח מדמו CBME · ${new Date().toLocaleString('he-IL')}`
+    `תפקיד: ${payload.role}\n` +
+    `שם: ${payload.name}\n` +
+    `דירוג: ${payload.rating}\n` +
+    `מסכים שעניינו: ${payload.screens}\n\n` +
+    `הערות:\n${payload.feedback}\n\n` +
+    `--\nנשלח מדמו CBME · ${payload.timestamp}`
   );
-  // Replace with the real recipient email of the person collecting feedback:
-  const recipient = 'R_ILUZ@rambam.health.gov.il';
-  window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
+  window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
 
   closeFeedbackModal();
   showToast('תודה! הדוא"ל יישלח דרך לקוח הדואר שלך.', 'success');
+  resetFeedbackForm();
+}
 
-  // Reset form
+function resetFeedbackForm() {
   document.getElementById('fb-role').value = '';
   document.getElementById('fb-text').value = '';
   document.getElementById('fb-name').value = '';
@@ -2757,9 +3312,12 @@ function closeDemoBanner() {
 // ═══════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════
-buildAll();
-renderScreen();
-showDemoBannerIfFirstVisit();
+if (initializeSession()) {
+  showAppScreen();
+  showDemoBannerIfFirstVisit();
+} else {
+  showLoginScreen();
+}
 </script>
 
 </body>
