@@ -594,9 +594,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.6.4';
+const APP_VERSION = '2.6.5';
 const APP_VERSION_DATE = '6.5.2026';
-const APP_VERSION_NOTES = 'תיקון קריטי: בעת login, ה-frontend קרא את role מ-data.user במקום data.data.user, ונפל ל-resident default — מה שגרם להצגת נתוני דמו של רן. כעת fail-CLOSED ולא fallback.';
+const APP_VERSION_NOTES = 'PD כמעריך: הוספת Micro + Macro לתפריט PD. סיכום PD לפי קומפטנציה עם checkboxes לבחירת מה נשלח למתמחה. הדרכת קבצים ב-Drive במסך הפקת דוחות.';
 // ────────────────────────────────────────────────────────────────────
 
 // Session management
@@ -1879,8 +1879,11 @@ const ROLES = [
 const NAV_BY_ROLE = {
   pd: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
+    { id: 'attending-micro', label: 'הערכה מיידית',  icon: '⚡' },
+    { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
+    { id: 'attending-history', label: 'היסטוריה',    icon: '◷', divider: true },
     { id: 'pd-status',    label: 'סטטוס משובים',  icon: '◷' },
-    { id: 'pd-macro',     label: 'הערכות תקופתיות', icon: '◐' },
+    { id: 'pd-macro',     label: 'סיכום תקופתי (PD)', icon: '✎' },
     { id: 'pd-cross',     label: 'חתך רוחבי',     icon: '⊞' },
     { id: 'pd-data',      label: 'ניהול נתונים',  icon: '⤒' },
     { id: 'pd-ai',        label: 'חיפוש חכם (AI)', icon: '✦', divider: true },
@@ -3253,7 +3256,7 @@ async function submitMicroEval() {
       // Log audit
       logToAudit('submit_micro_eval', { residentId: resident.id, category: selectedEvent });
       // Navigate to history after delay
-      setTimeout(() => navigateTo(currentRole === 'chief' ? 'chief-history' : 'attending-history'), 1500);
+      setTimeout(() => navigateTo(currentRole === 'chief' ? 'chief-history' : 'attending-history'), 1500);  // PD also uses attending-history
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
       showToast('שגיאה בשליחה: ' + msg, 'error');
@@ -4142,14 +4145,29 @@ async function approveMacro() {
   const q = Math.floor(now.getMonth() / 3) + 1;
   const quarterId = `${now.getFullYear()}-Q${q}`;
   
-  // Gather PD summary fields (textareas from screen-pd-macro)
+  // Gather PD summary fields
   const screen = document.getElementById('screen-pd-macro');
-  const textareas = screen ? Array.from(screen.querySelectorAll('textarea')) : [];
-  const visibleFeedback = textareas[0]?.value || '';
-  const privateNote = textareas[1]?.value || '';
-  
+  const visibleFeedback = document.getElementById('macro-pd-summary')?.value || '';
+  const goals = document.getElementById('macro-pd-goals')?.value || '';
+  const recommendation = document.getElementById('macro-pd-recommendation')?.value || '';
+
+  // Gather per-competency PD notes + checkbox selections
+  const competencyNotes = gatherCompetencyNotes();
+
+  // Build the visible summary: general summary + included competency notes
+  const includedNotes = Object.values(competencyNotes)
+    .filter(n => n.includeInSummary && n.text.trim())
+    .map(n => `${n.label}: ${n.text.trim()}`)
+    .join('\n');
+  const combinedFeedback = [visibleFeedback, includedNotes].filter(Boolean).join('\n\n---\n\n');
+
+  // Private note is the last textarea (if exists)
+  const allTextareas = screen ? Array.from(screen.querySelectorAll('textarea')) : [];
+  const privateNoteEl = allTextareas.find(t => !t.id && !t.dataset.compNote);
+  const privateNote = privateNoteEl?.value || '';
+
   showToast('מאשר ושולח למתמחה...', 'info');
-  
+
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
@@ -4161,8 +4179,11 @@ async function approveMacro() {
           quarterId: quarterId,
           residentId: residentId,
           scores: {},
-          visibleFeedback: visibleFeedback,
+          visibleFeedback: combinedFeedback,
           privateNote: privateNote,
+          competencyNotes: competencyNotes,
+          goals: goals,
+          recommendation: recommendation,
         },
       }),
     });
@@ -4541,6 +4562,32 @@ function renderMacroPdScreen() {
       <p id="ai-synthesis-text" class="text-xs text-purple-900 leading-relaxed">${synthesis}</p>
     </div>
 
+    <!-- PD per-competency notes + checkboxes -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase">הערות PD לפי קומפטנציה</div>
+          <div class="text-xs text-gray-400 mt-0.5">סמן/י את ה-checkbox כדי לכלול בסיכום הסופי למתמחה</div>
+        </div>
+        ${!isReadOnly ? `<button onclick="toggleAllCompNotes()" class="text-xs text-purple-600 hover:underline">סמן/בטל הכל</button>` : ''}
+      </div>
+      <div class="space-y-3">
+        ${ACGME_COMPETENCIES.map(c => {
+          const s = d.scores[c.key];
+          const scoreLabel = s && s.avg !== null ? s.avg.toFixed(1) + '/5' : '—';
+          return `
+          <div class="border border-gray-100 rounded-lg p-3">
+            <div class="flex items-center gap-2 mb-2">
+              <input type="checkbox" class="comp-note-include rounded" data-comp="${c.key}" ${isReadOnly ? 'disabled' : ''} id="comp-include-${c.key}">
+              <label for="comp-include-${c.key}" class="text-sm font-medium flex-1 cursor-pointer">${c.short}</label>
+              <span class="text-xs text-gray-400">${scoreLabel}</span>
+            </div>
+            <textarea data-comp-note="${c.key}" ${isReadOnly ? 'disabled' : ''} class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 h-16 focus:outline-none focus:ring-2 focus:ring-purple-400 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="הערת PD ל${c.short}..."></textarea>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
     <!-- PD's final summary editor -->
     <div class="bg-white rounded-xl border-2 ${isReadOnly ? 'border-gray-200' : 'border-purple-300'} p-4 mb-4">
       <div class="flex items-center gap-2 mb-3">
@@ -4549,8 +4596,8 @@ function renderMacroPdScreen() {
         </span>
       </div>
 
-      <label class="text-xs font-medium text-gray-700 mb-1 block">סיכום הערכה לתקופה</label>
-      <textarea id="macro-pd-summary" ${isReadOnly ? 'disabled' : ''} class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 h-32 mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="סיכום מילולי שיוצג למתמחה ויהווה חלק מתיק ההתמחות הרשמי..."></textarea>
+      <label class="text-xs font-medium text-gray-700 mb-1 block">סיכום הערכה כללי לתקופה</label>
+      <textarea id="macro-pd-summary" ${isReadOnly ? 'disabled' : ''} class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 h-32 mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="סיכום מילולי כללי שיוצג למתמחה ויהווה חלק מתיק ההתמחות הרשמי..."></textarea>
 
       <div class="grid md:grid-cols-2 gap-3 mb-3">
         <div>
@@ -4593,6 +4640,28 @@ function renderMacroPdScreen() {
       </div>`}
     </div>
   `;
+}
+
+function toggleAllCompNotes() {
+  const checkboxes = document.querySelectorAll('.comp-note-include');
+  const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+  checkboxes.forEach(cb => cb.checked = !allChecked);
+}
+
+function gatherCompetencyNotes() {
+  const notes = {};
+  ACGME_COMPETENCIES.forEach(c => {
+    const cb = document.querySelector(`[data-comp="${c.key}"].comp-note-include`);
+    const ta = document.querySelector(`[data-comp-note="${c.key}"]`);
+    if (cb && ta) {
+      notes[c.key] = {
+        text: ta.value || '',
+        includeInSummary: cb.checked,
+        label: c.short,
+      };
+    }
+  });
+  return notes;
 }
 
 function selectMacroResident(name) {
@@ -4689,6 +4758,28 @@ function renderReportsScreen() {
         ${isResident ? 'הפק דוחות אישיים מה-portfolio שלך – PDF או Word' : 'הפק דוחות מחלקתיים ואישיים על מתמחים – PDF או Word'}
       </p>
     </div>
+
+    <!-- File location guide -->
+    <details class="bg-blue-50 border border-blue-200 rounded-xl mb-4">
+      <summary class="p-3 cursor-pointer hover:bg-blue-100/50 rounded-xl flex items-center gap-2 text-sm font-medium text-blue-800">
+        <span>📂</span> איפה נשמרים הקבצים ב-Google Drive?
+      </summary>
+      <div class="px-4 pb-3 text-xs text-blue-900 leading-relaxed space-y-1.5">
+        <p>כל הקבצים נשמרים בתיקיית <strong>CBME_OBGYN</strong> ב-Google Drive של המחלקה:</p>
+        <div class="bg-white/60 rounded-lg p-2.5 font-mono text-xs space-y-0.5">
+          <div><strong>CBME_OBGYN/</strong></div>
+          <div class="pr-4">📁 <strong>evaluations/micro/</strong>YYYY-MM/ — הערכות מיידיות (לפי חודש)</div>
+          <div class="pr-4">📁 <strong>evaluations/macro/</strong>QUARTER/ — הערכות תקופתיות (טיוטות + סופיות)</div>
+          <div class="pr-4">📁 <strong>procedures/</strong> — קבצי פעולות (Excel)</div>
+          <div class="pr-4">📁 <strong>exams/</strong> — ציוני מבחנים</div>
+          <div class="pr-4">📁 <strong>staff/</strong> — dynamic.json (משתמשים) + user_overrides.json</div>
+          <div class="pr-4">📁 <strong>user_settings/</strong> — הגדרות אישיות לכל משתמש</div>
+          <div class="pr-4">📄 <strong>audit-log.json</strong> — לוג פעולות מערכת</div>
+        </div>
+        <p class="mt-2">💡 <strong>טיפ:</strong> כדי למצוא הערכות של מתמחה מסוים, חפשו ב-Drive את שם הקובץ שמכיל את ה-ID שלו (למשל <code>res-aburas</code>).</p>
+        <p>📋 סיכומי PD מאושרים נשמרים ב- <strong>evaluations/macro/QUARTER/finals/</strong></p>
+      </div>
+    </details>
 
     <!-- Global controls -->
     <div class="bg-white rounded-xl border border-gray-200 p-4 mb-3">
