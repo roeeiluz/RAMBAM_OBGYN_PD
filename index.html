@@ -594,9 +594,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.6.6';
+const APP_VERSION = '2.7.0';
 const APP_VERSION_DATE = '6.5.2026';
-const APP_VERSION_NOTES = 'Dev mode: auto-login bypass for testing.';
+const APP_VERSION_NOTES = 'PD macro: editable scores, comment filtering, history. Fix: dynamic users loading.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1171,6 +1171,30 @@ function loadDraft(formId) {
 
 function clearDraft(formId) {
   try { localStorage.removeItem(_draftKey(formId)); } catch (e) {}
+}
+
+// ── Local evaluation history (persists between sessions in localStorage) ──
+const LOCAL_HISTORY_KEY = 'cbme_eval_history';
+const LOCAL_HISTORY_MAX = 100;
+
+function _saveToLocalHistory(entry) {
+  try {
+    const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    // For drafts: replace existing draft for same resident+quarter
+    if (entry.subType === 'draft') {
+      const idx = history.findIndex(h => h.subType === 'draft' && h.residentId === entry.residentId && h.quarterId === entry.quarterId && h.type === entry.type);
+      if (idx >= 0) history.splice(idx, 1);
+    }
+    history.unshift(entry);
+    if (history.length > LOCAL_HISTORY_MAX) history.length = LOCAL_HISTORY_MAX;
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(history));
+  } catch (e) { console.warn('Local history save failed:', e); }
+}
+
+function _getLocalHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+  } catch (e) { return []; }
 }
 
 // Attach a debounced auto-save to all inputs/textareas/buttons within a screen
@@ -3272,6 +3296,12 @@ async function submitMicroEval() {
       if (window._currentMicroFormId) clearDraft(window._currentMicroFormId);
       // Log audit
       logToAudit('submit_micro_eval', { residentId: resident.id, category: selectedEvent });
+      // Track in local history
+      _saveToLocalHistory({
+        type: 'micro', subType: 'final', residentId: resident.id, residentName: resident.name,
+        evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
+        category: selectedEvent, timestamp: Date.now(),
+      });
       // Navigate to history after delay
       setTimeout(() => navigateTo(currentRole === 'chief' ? 'chief-history' : 'attending-history'), 1500);  // PD also uses attending-history
     } else {
@@ -3292,8 +3322,18 @@ function renderAttendingHistory(role) {
   const screenId = role === 'chief' ? 'screen-chief-history' : 'screen-attending-history';
   const isChief = role === 'chief';
 
-  // Pilot: starts empty. Real submissions will accumulate here.
-  const items = [];
+  // Load from localStorage-based history (persisted across sessions)
+  const rawHistory = _getLocalHistory();
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const items = rawHistory
+    .filter(h => Date.now() - h.timestamp < thirtyDaysMs)
+    .map(h => {
+      const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
+      const daysAgo = Math.max(0, Math.round((Date.now() - h.timestamp) / (24*60*60*1000)));
+      const typeLabel = h.type === 'macro' ? 'תקופתית' : 'מיידית';
+      const isDraft = h.subType === 'draft';
+      return { ...h, initials, daysAgo, typeLabel, isDraft };
+    });
 
   document.getElementById(screenId).innerHTML = `
     <div class="mb-5">
@@ -3305,22 +3345,22 @@ function renderAttendingHistory(role) {
         <div class="text-center py-8">
           <div class="text-3xl mb-2">📝</div>
           <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות עדיין</div>
-          <div class="text-xs text-gray-500">הערכות שתגיש/י מהמסך "הערכה מיידית" יופיעו כאן.</div>
+          <div class="text-xs text-gray-500">הערכות שתגיש/י מהמסך "הערכה מיידית" או "הערכה תקופתית" יופיעו כאן.</div>
         </div>
       ` : `
         <div class="space-y-1">
           ${items.map(r => `
-            <div class="grid grid-cols-12 gap-2 px-2 py-2 hover:bg-gray-50 rounded-lg items-center border-b border-gray-50">
-              <div class="col-span-12 md:col-span-4 flex items-center gap-2.5">
-                <div class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-semibold">${r.initials}</div>
-                <div class="text-sm">${r.name}</div>
+            <div class="flex items-center gap-3 px-2 py-2.5 hover:bg-gray-50 rounded-lg border-b border-gray-50 ${r.isDraft ? 'bg-amber-50/50' : ''}">
+              <div class="w-8 h-8 rounded-full ${r.isDraft ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} flex items-center justify-center text-xs font-semibold shrink-0">${r.initials}</div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-sm font-medium">${r.residentName || '—'}</span>
+                  <span class="text-xs ${r.type==='macro' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
+                  ${r.isDraft ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">טיוטא</span>' : ''}
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5">${r.category ? r.category + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
-              <div class="col-span-3 md:col-span-2"><span class="text-xs ${r.type==='Macro'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.type}</span></div>
-              <div class="col-span-6 md:col-span-3 text-xs text-gray-600">${r.event}</div>
-              <div class="col-span-3 md:col-span-2 text-xs text-gray-500">לפני ${r.daysAgo} ימים</div>
-              <div class="col-span-12 md:col-span-1 text-left">
-                ${r.hasPrivate ? '<span title="מכיל הערה פרטית" class="text-xs">🔒</span>' : ''}
-              </div>
+              ${r.isDraft ? `<button onclick="navigateTo('attending-macro')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך עריכה</button>` : ''}
             </div>
           `).join('')}
         </div>
@@ -4142,6 +4182,12 @@ async function _submitMacro(subType, mode) {
         clearDraft(window._currentMacroFormId);
       }
       logToAudit('submit_macro_eval', { residentId, subType, quarterId });
+      // Track submission in local history for History screen
+      _saveToLocalHistory({
+        type: 'macro', subType, residentId, residentName, quarterId,
+        evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
+        timestamp: Date.now(),
+      });
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
       showToast('שגיאה: ' + msg, 'error');
@@ -4168,13 +4214,24 @@ async function approveMacro() {
   const goals = document.getElementById('macro-pd-goals')?.value || '';
   const recommendation = document.getElementById('macro-pd-recommendation')?.value || '';
 
-  // Gather per-competency PD notes + checkbox selections
+  // Gather per-competency PD notes + checkbox selections + edited scores
   const competencyNotes = gatherCompetencyNotes();
+
+  // Gather which attending comments are included
+  const includedComments = gatherIncludedComments();
+
+  // Build PD scores from edited inputs (overrides for original averages)
+  const pdScores = {};
+  ACGME_COMPETENCIES.forEach(c => {
+    if (competencyNotes[c.key]?.pdScore) {
+      pdScores[c.key] = competencyNotes[c.key].pdScore;
+    }
+  });
 
   // Build the visible summary: general summary + included competency notes
   const includedNotes = Object.values(competencyNotes)
     .filter(n => n.includeInSummary && n.text.trim())
-    .map(n => `${n.label}: ${n.text.trim()}`)
+    .map(n => `${n.label}${n.pdScore ? ' (' + n.pdScore.toFixed(1) + '/5)' : ''}: ${n.text.trim()}`)
     .join('\n');
   const combinedFeedback = [visibleFeedback, includedNotes].filter(Boolean).join('\n\n---\n\n');
 
@@ -4195,10 +4252,11 @@ async function approveMacro() {
         data: {
           quarterId: quarterId,
           residentId: residentId,
-          scores: {},
+          scores: pdScores,
           visibleFeedback: combinedFeedback,
           privateNote: privateNote,
           competencyNotes: competencyNotes,
+          includedComments: includedComments,
           goals: goals,
           recommendation: recommendation,
         },
@@ -4542,9 +4600,15 @@ function renderMacroPdScreen() {
       </div>
     </div>
 
-    <!-- Aggregated comments per competency -->
+    <!-- Aggregated comments per competency — with checkboxes for PD to include/exclude -->
     <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-      <div class="text-xs font-medium text-gray-500 uppercase mb-3">ריכוז הערות מנחים</div>
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase">ריכוז הערות מנחים</div>
+          ${!isReadOnly ? '<div class="text-xs text-gray-400 mt-0.5">סמן/י הערות שייכללו בסיכום הסופי למתמחה</div>' : ''}
+        </div>
+        ${!isReadOnly ? '<button onclick="toggleAllAttendingComments()" class="text-xs text-purple-600 hover:underline">סמן/בטל הכל</button>' : ''}
+      </div>
       <div class="space-y-3">
         ${ACGME_COMPETENCIES.map(c => {
           const cms = d.comments[c.key];
@@ -4556,10 +4620,13 @@ function renderMacroPdScreen() {
                 <span class="text-xs text-gray-400">${cms.length} הערות</span>
               </summary>
               <div class="px-3 pb-3 space-y-2">
-                ${cms.map(cm => `
-                  <div class="border-r-4 ${cm.isSelf ? 'border-blue-300 bg-blue-50/30' : 'border-purple-300'} pr-3 py-1.5">
-                    <div class="text-xs text-gray-400 mb-1">${cm.author}</div>
-                    <div class="text-xs text-gray-700 leading-relaxed">${cm.text}</div>
+                ${cms.map((cm, i) => `
+                  <div class="flex items-start gap-2 border-r-4 ${cm.isSelf ? 'border-blue-300 bg-blue-50/30' : 'border-purple-300'} pr-3 py-1.5">
+                    ${!isReadOnly ? `<input type="checkbox" class="att-comment-include rounded mt-0.5 shrink-0" data-comment-comp="${c.key}" data-comment-idx="${i}" checked>` : ''}
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs text-gray-400 mb-1">${cm.author}</div>
+                      <div class="text-xs text-gray-700 leading-relaxed">${cm.text}</div>
+                    </div>
                   </div>
                 `).join('')}
               </div>
@@ -4584,7 +4651,7 @@ function renderMacroPdScreen() {
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
           <div class="text-xs font-medium text-gray-500 uppercase">הערות PD לפי קומפטנציה</div>
-          <div class="text-xs text-gray-400 mt-0.5">סמן/י את ה-checkbox כדי לכלול בסיכום הסופי למתמחה</div>
+          <div class="text-xs text-gray-400 mt-0.5">ציון ברירת מחדל = ממוצע בכירים. ניתן לערוך. סמן/י checkbox לכלול בסיכום.</div>
         </div>
         ${!isReadOnly ? `<button onclick="toggleAllCompNotes()" class="text-xs text-purple-600 hover:underline">סמן/בטל הכל</button>` : ''}
       </div>
@@ -4597,7 +4664,14 @@ function renderMacroPdScreen() {
             <div class="flex items-center gap-2 mb-2">
               <input type="checkbox" class="comp-note-include rounded" data-comp="${c.key}" ${isReadOnly ? 'disabled' : ''} id="comp-include-${c.key}">
               <label for="comp-include-${c.key}" class="text-sm font-medium flex-1 cursor-pointer">${c.short}</label>
-              <span class="text-xs text-gray-400">${scoreLabel}</span>
+              <div class="flex items-center gap-1">
+                <input type="number" min="1" max="5" step="0.1" data-comp-score="${c.key}"
+                  value="${s && s.avg !== null ? s.avg.toFixed(1) : ''}"
+                  ${isReadOnly ? 'disabled' : ''}
+                  class="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400 ${isReadOnly ? 'bg-gray-50' : ''}"
+                  placeholder="—">
+                <span class="text-xs text-gray-400">/ 5</span>
+              </div>
             </div>
             <textarea data-comp-note="${c.key}" ${isReadOnly ? 'disabled' : ''} class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 h-16 focus:outline-none focus:ring-2 focus:ring-purple-400 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="הערת PD ל${c.short}..."></textarea>
           </div>`;
@@ -4659,6 +4733,23 @@ function renderMacroPdScreen() {
   `;
 }
 
+function toggleAllAttendingComments() {
+  const checkboxes = document.querySelectorAll('.att-comment-include');
+  const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+  checkboxes.forEach(cb => cb.checked = !allChecked);
+}
+
+function gatherIncludedComments() {
+  const included = {};
+  document.querySelectorAll('.att-comment-include').forEach(cb => {
+    const comp = cb.dataset.commentComp;
+    const idx = parseInt(cb.dataset.commentIdx);
+    if (!included[comp]) included[comp] = [];
+    if (cb.checked) included[comp].push(idx);
+  });
+  return included;
+}
+
 function toggleAllCompNotes() {
   const checkboxes = document.querySelectorAll('.comp-note-include');
   const allChecked = Array.from(checkboxes).every(cb => cb.checked);
@@ -4670,11 +4761,13 @@ function gatherCompetencyNotes() {
   ACGME_COMPETENCIES.forEach(c => {
     const cb = document.querySelector(`[data-comp="${c.key}"].comp-note-include`);
     const ta = document.querySelector(`[data-comp-note="${c.key}"]`);
+    const scoreInput = document.querySelector(`[data-comp-score="${c.key}"]`);
     if (cb && ta) {
       notes[c.key] = {
         text: ta.value || '',
         includeInSummary: cb.checked,
         label: c.short,
+        pdScore: scoreInput ? parseFloat(scoreInput.value) || null : null,
       };
     }
   });
@@ -7031,14 +7124,18 @@ async function callBackendAction(action, data) {
 
 async function loadDynamicUsers() {
   const result = await callBackendAction('list_dynamic_users', {});
-  if (result.success && result.data?.users) {
-    DYNAMIC_USERS = result.data.users;
+  // Backend _ok() wraps payload in .data, callBackendAction wraps response in .data
+  // So users are at result.data.data.users (double data nesting)
+  const dynPayload = result.data?.data || result.data || {};
+  if (result.success && dynPayload.users) {
+    DYNAMIC_USERS = dynPayload.users;
   }
   // Also load full state (active + archived) — only PD/coordinator can see this
   if (currentRole === 'pd' || currentRole === 'coordinator') {
     const allResult = await callBackendAction('list_all_users', {});
-    if (allResult.success && allResult.data?.users) {
-      ALL_USERS_STATE = allResult.data.users;
+    const allPayload = allResult.data?.data || allResult.data || {};
+    if (allResult.success && allPayload.users) {
+      ALL_USERS_STATE = allPayload.users;
     }
   }
   // Rebuild RESIDENTS to reflect dynamic + archive state
