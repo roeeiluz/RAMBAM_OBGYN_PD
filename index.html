@@ -594,9 +594,13 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.6.5';
+const APP_VERSION = '2.6.6';
 const APP_VERSION_DATE = '6.5.2026';
-const APP_VERSION_NOTES = 'PD כמעריך: הוספת Micro + Macro לתפריט PD. סיכום PD לפי קומפטנציה עם checkboxes לבחירת מה נשלח למתמחה. הדרכת קבצים ב-Drive במסך הפקת דוחות.';
+const APP_VERSION_NOTES = 'Dev mode: auto-login bypass for testing.';
+// ────────────────────────────────────────────────────────────────────
+
+// ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
+const DEV_BYPASS_AUTH = true;
 // ────────────────────────────────────────────────────────────────────
 
 // Session management
@@ -1550,6 +1554,19 @@ async function handleRequestCode() {
   
   if (result.success) {
     tempEmail = email;
+
+    // DEV_BYPASS: skip code entry, auto-verify with '000000'
+    if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+      btn.textContent = 'כניסה אוטומטית (dev)...';
+      const devResult = await verifyMagicCode(email, '000000');
+      if (devResult.success) {
+        showAppScreen();
+        return;
+      }
+      // If bypass failed, fall through to normal code entry
+      console.warn('[DEV] Bypass failed, falling back to normal code entry');
+    }
+
     document.getElementById('login-email-display').textContent = email;
     document.getElementById('login-step-1').classList.add('hidden');
     document.getElementById('login-step-2').classList.remove('hidden');
