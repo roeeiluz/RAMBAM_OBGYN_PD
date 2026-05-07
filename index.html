@@ -537,6 +537,17 @@
     <section id="screen-attending-history" class="screen"></section>
 
     <!-- ===================================================== -->
+    <!-- SCREEN: Unified eval status (replaces history+status)  -->
+    <!-- ===================================================== -->
+    <section id="screen-eval-status" class="screen"></section>
+
+    <!-- ===================================================== -->
+    <!-- SCREEN: Personal portfolio (PD view + resident view)   -->
+    <!-- ===================================================== -->
+    <section id="screen-pd-portfolio" class="screen"></section>
+    <section id="screen-resident-portfolio" class="screen"></section>
+
+    <!-- ===================================================== -->
     <!-- SCREEN: AI Search (works for both PD + Resident)       -->
     <!-- ===================================================== -->
     <section id="screen-pd-ai" class="screen ai-screen"></section>
@@ -616,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.9.0';
 const APP_VERSION_DATE = '7.5.2026';
-const APP_VERSION_NOTES = 'Reports revision (6 new builders). Macro form flow fix + auto-draft. Self-micro recent history. Category label in history. Draft banner dedup.';
+const APP_VERSION_NOTES = 'Unified eval status screen with filter chips. Resident portfolio. Macro flow fix: self-evals visible to PD. All residents in PD macro dropdown.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -856,19 +867,35 @@ async function submitEvaluation(evaluationData) {
     _saveToLocalHistory(historyEntry);
 
     // Also add to DEMO_SEED_EVALUATIONS for immediate screen use
-    if (evaluationData.type === 'micro' || evaluationData.type === 'macro') {
+    if (evaluationData.type === 'micro') {
       DEMO_SEED_EVALUATIONS.push({
-        type: evaluationData.type,
+        type: 'micro',
         timestamp: historyEntry.timestamp,
         evaluatorEmail: currentUserEmail || '',
         evaluatorName: currentUser ? currentUser.name : '',
-        evaluatorRole: currentRole || 'attending',
+        evaluatorRole: evaluationData.evaluatorRole || currentRole || 'attending',
         residentName: evaluationData.residentName || '',
+        residentId: evaluationData.residentId || '',
         category: evaluationData.category || '',
         categoryLabel: evaluationData.categoryLabel || evaluationData.category || '',
-        categoryScore: evaluationData.categoryScore || evaluationData.epaScores ? Object.values(evaluationData.epaScores || {}).reduce((a,b)=>a+b,0) / Math.max(Object.keys(evaluationData.epaScores || {}).length, 1) : null,
+        categoryScore: evaluationData.epaScores ? Object.values(evaluationData.epaScores).reduce((a,b)=>a+b,0) / Math.max(Object.keys(evaluationData.epaScores).length, 1) : null,
+        epaScores: evaluationData.epaScores || {},
         visibleFeedback: evaluationData.visibleFeedback || '',
         privateNote: evaluationData.privateNote || null,
+        _devSeed: true,
+      });
+    } else if (evaluationData.type === 'macro') {
+      DEMO_SEED_EVALUATIONS.push({
+        type: 'macro',
+        timestamp: historyEntry.timestamp,
+        evaluatorEmail: evaluationData.evaluatorEmail || currentUserEmail || '',
+        evaluatorName: evaluationData.evaluatorName || (currentUser ? currentUser.name : ''),
+        evaluatorRole: evaluationData.evaluatorRole || currentRole || 'attending',
+        residentName: evaluationData.residentName || '',
+        residentId: evaluationData.residentId || '',
+        quarterId: evaluationData.quarterId || '',
+        subType: evaluationData.subType || 'final',
+        competencies: evaluationData.competencies || {},
         _devSeed: true,
       });
     }
@@ -1584,8 +1611,8 @@ function _deleteDraftFromHistory(index) {
         if (dIdx >= 0) DEMO_SEED_EVALUATIONS.splice(dIdx, 1);
       }
       showToast('הטיוטא נמחקה', 'success');
-      // Re-render history screen
-      renderAttendingHistory();
+      // Re-render eval status screen
+      renderEvalStatus();
     }
   } catch (e) { console.warn('Draft delete failed:', e); }
 }
@@ -2321,8 +2348,8 @@ const NAV_BY_ROLE = {
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
     { id: 'attending-micro', label: 'הערכה מיידית',  icon: '⚡' },
     { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
-    { id: 'attending-history', label: 'היסטוריה',    icon: '◷', divider: true },
-    { id: 'pd-status',    label: 'סטטוס משובים',  icon: '◷' },
+    { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷', divider: true },
+    { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'סיכום תקופתי (PD)', icon: '✎' },
     { id: 'pd-cross',     label: 'חתך רוחבי',     icon: '⊞' },
     { id: 'pd-data',      label: 'ניהול נתונים',  icon: '⤒' },
@@ -2333,7 +2360,8 @@ const NAV_BY_ROLE = {
   ],
   coordinator: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
-    { id: 'pd-status',    label: 'סטטוס משובים',  icon: '◷' },
+    { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷' },
+    { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'הערכות תקופתיות', icon: '◐' },
     { id: 'pd-data',      label: 'ניהול נתונים',  icon: '⤒' },
     { id: 'pd-reports',   label: 'הפקת דוחות',     icon: '⤓', divider: true },
@@ -2344,14 +2372,14 @@ const NAV_BY_ROLE = {
     { id: 'attending-micro',      label: 'הערכה מיידית',    icon: '⚡' },
     { id: 'attending-macro',      label: 'הערכה תקופתית',   icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
-    { id: 'attending-history',    label: 'היסטוריה',         icon: '◷' },
+    { id: 'eval-status',          label: 'סטטוס משובים',    icon: '◷' },
     { id: 'methodology',          label: 'מתודולוגיה',       icon: '📖', divider: true },
     { id: 'settings',             label: 'הגדרות',           icon: '⚙' },
   ],
   chief: [
     { id: 'chief-micro',      label: 'הערכה מיידית',     icon: '⚡' },
     { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
-    { id: 'chief-history',    label: 'ההערכות שלי',      icon: '◷' },
+    { id: 'eval-status',      label: 'סטטוס משובים',     icon: '◷' },
     { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
     { id: 'chief-self',       label: 'הערכה תקופתית עצמית', icon: '◐' },
     { id: 'methodology',      label: 'מתודולוגיה',       icon: '📖', divider: true },
@@ -2362,6 +2390,7 @@ const NAV_BY_ROLE = {
     { id: 'resident-procedures',  label: 'הפעולות שלי',         icon: '⊞' },
     { id: 'resident-self-micro',  label: 'משוב מהיר עצמי',      icon: '⚡' },
     { id: 'resident-self',        label: 'הערכה תקופתית עצמית', icon: '◐' },
+    { id: 'resident-portfolio',   label: 'התיק שלי',            icon: '👤' },
     { id: 'resident-approved',    label: 'סיכומים מאושרים',     icon: '✓' },
     { id: 'resident-ai',          label: 'חיפוש חכם (AI)',      icon: '✦', divider: true },
     { id: 'resident-reports',     label: 'הפקת דוחות',          icon: '⤓' },
@@ -2678,7 +2707,7 @@ function renderScreen() {
   // Hydrate screen content
   if (currentScreen === 'pd-dashboard') renderPdDashboard();
   if (currentScreen === 'pd-cross') renderCrossSection();
-  if (currentScreen === 'pd-status') renderStatus();
+  if (currentScreen === 'pd-status') renderEvalStatus(); // legacy alias
   if (currentScreen === 'pd-profile') renderProfile();
   if (currentScreen === 'pd-macro') renderMacroPdScreen();
 
@@ -2689,13 +2718,18 @@ function renderScreen() {
 
   if (currentScreen === 'attending-micro') renderMicroForm();
   if (currentScreen === 'attending-macro') renderMacroFormScreen('attending');
-  if (currentScreen === 'attending-history') renderAttendingHistory();
+  if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
+  if (currentScreen === 'eval-status') renderEvalStatus();
 
   // Chief: reuses attending micro/history + has own self screens
   if (currentScreen === 'chief-micro')      renderMicroForm('chief');
-  if (currentScreen === 'chief-history')    renderAttendingHistory('chief');
+  if (currentScreen === 'chief-history')    renderEvalStatus(); // legacy alias
   if (currentScreen === 'chief-self-micro') renderSelfMicroForm('chief');
   if (currentScreen === 'chief-self')       renderMacroFormScreen('chief');
+
+  // Portfolio screens
+  if (currentScreen === 'pd-portfolio')       renderPortfolio('pd');
+  if (currentScreen === 'resident-portfolio') renderPortfolio('resident');
 
   if (currentScreen === 'pd-ai' || currentScreen === 'resident-ai') renderAIScreen();
   if (currentScreen === 'pd-reports' || currentScreen === 'resident-reports') renderReportsScreen();
@@ -3867,53 +3901,145 @@ async function submitMicroEval() {
 // ═══════════════════════════════════════════════════════════════════
 // ATTENDING: HISTORY
 // ═══════════════════════════════════════════════════════════════════
-function renderAttendingHistory(role) {
-  role = role || 'attending';
-  const screenId = role === 'chief' ? 'screen-chief-history' : 'screen-attending-history';
-  const isChief = role === 'chief';
+// ═══ Legacy aliases — kept for backward compat ═══
+function renderAttendingHistory(role) { renderEvalStatus(); }
 
-  // Load from localStorage-based history (persisted across sessions)
+// ═══════════════════════════════════════════════════════════════════
+// UNIFIED: "סטטוס משובים" — replaces attending-history, chief-history, pd-status
+// Filter chips: הכל | טיוטות שלי | הערכות שהושלמו | הערכות עצמיות לדיון
+// "הצג ישנים יותר" button + date range picker
+// ═══════════════════════════════════════════════════════════════════
+let _evalStatusFilter = 'all';
+let _evalStatusShowAll = false; // false = 30 days, true = show everything
+let _evalStatusDateFrom = null;
+let _evalStatusDateTo = null;
+
+function renderEvalStatus() {
+  const screenId = 'screen-eval-status';
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+
+  const role = currentUser?.role || 'attending';
+  const isPd = role === 'pd' || role === 'coordinator';
+  const isResident = role === 'resident';
+
+  // ── Gather all evaluations ──
   const rawHistory = _getLocalHistory();
-  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-  const items = rawHistory
-    .map((h, origIdx) => ({ ...h, _origIdx: origIdx }))
-    .filter(h => Date.now() - h.timestamp < thirtyDaysMs)
-    .map(h => {
-      const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
-      const daysAgo = Math.max(0, Math.round((Date.now() - h.timestamp) / (24*60*60*1000)));
-      const typeLabel = h.type === 'macro' ? 'תקופתית' : 'מיידית';
-      const isDraft = h.subType === 'draft';
-      return { ...h, initials, daysAgo, typeLabel, isDraft };
-    });
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
 
-  document.getElementById(screenId).innerHTML = `
+  // Merge localStorage + seed, deduplicate by timestamp+residentId
+  const seen = new Set();
+  const merged = [];
+  [...rawHistory, ...seedEvals].forEach(h => {
+    const key = `${h.timestamp || h.date || 0}_${h.residentId || ''}_${h.type || ''}`;
+    if (!seen.has(key)) { seen.add(key); merged.push(h); }
+  });
+
+  // Map to display items
+  const now = Date.now();
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  let items = merged
+    .map((h, origIdx) => {
+      const ts = new Date(h.timestamp || h.date || 0).getTime();
+      const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
+      const daysAgo = Math.max(0, Math.round((now - ts) / (24*60*60*1000)));
+      const typeLabel = h.type === 'macro' ? 'תקופתית' : h.selfAssessment ? 'עצמית' : 'מיידית';
+      const isDraft = h.subType === 'draft';
+      const isSelfAssessment = !!h.selfAssessment;
+      // Find origIdx in rawHistory for draft deletion
+      const histIdx = rawHistory.indexOf(h);
+      return { ...h, _origIdx: histIdx >= 0 ? histIdx : origIdx, _ts: ts, initials, daysAgo, typeLabel, isDraft, isSelfAssessment };
+    })
+    .sort((a, b) => b._ts - a._ts);
+
+  // ── Date filtering ──
+  if (_evalStatusDateFrom || _evalStatusDateTo) {
+    const fromTs = _evalStatusDateFrom ? new Date(_evalStatusDateFrom).getTime() : 0;
+    const toTs = _evalStatusDateTo ? new Date(_evalStatusDateTo).getTime() + 86400000 : Infinity;
+    items = items.filter(i => i._ts >= fromTs && i._ts <= toTs);
+  } else if (!_evalStatusShowAll) {
+    items = items.filter(i => (now - i._ts) < thirtyDaysMs);
+  }
+
+  // ── Chip counts (before chip filtering, after date filtering) ──
+  const countAll = items.length;
+  const countDrafts = items.filter(i => i.isDraft).length;
+  const countCompleted = items.filter(i => !i.isDraft && !i.isSelfAssessment).length;
+  const countSelf = items.filter(i => i.isSelfAssessment).length;
+
+  // ── Apply chip filter ──
+  let filtered = items;
+  if (_evalStatusFilter === 'drafts') filtered = items.filter(i => i.isDraft);
+  else if (_evalStatusFilter === 'completed') filtered = items.filter(i => !i.isDraft && !i.isSelfAssessment);
+  else if (_evalStatusFilter === 'self') filtered = items.filter(i => i.isSelfAssessment);
+
+  // ── Check if there are items older than 30 days ──
+  const allMerged = merged.map(h => new Date(h.timestamp || h.date || 0).getTime());
+  const hasOlderItems = allMerged.some(ts => (now - ts) >= thirtyDaysMs);
+
+  screen.innerHTML = `
     <div class="mb-5">
-      <h1 class="text-lg font-semibold">${isChief ? 'ההערכות שלי' : 'היסטוריית הערכות שלי'}</h1>
-      <p class="text-xs text-gray-500 mt-0.5">${isChief ? 'הערכות שהגשת לזוטרים במשמרות שלך' : 'הערכות שהגשת ב-30 הימים האחרונים'}</p>
+      <h1 class="text-lg font-semibold">סטטוס משובים</h1>
+      <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'מעקב אחרי כל ההערכות במחלקה' : 'מעקב אחרי ההערכות שלי'}</p>
     </div>
+
+    <!-- ── Filter chips with counters ── -->
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button onclick="_setEvalFilter('all')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        הכל <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}">${countAll}</span>
+      </button>
+      <button onclick="_setEvalFilter('drafts')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'drafts' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        טיוטות שלי <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'drafts' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'}">${countDrafts}</span>
+      </button>
+      <button onclick="_setEvalFilter('completed')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'completed' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        הערכות שהושלמו <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'completed' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'}">${countCompleted}</span>
+      </button>
+      <button onclick="_setEvalFilter('self')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'self' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        הערכות עצמיות <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'self' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}">${countSelf}</span>
+      </button>
+    </div>
+
+    <!-- ── Date range picker ── -->
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+      <div class="flex items-center gap-1.5 text-xs text-gray-500">
+        <span>מתאריך:</span>
+        <input type="date" id="eval-date-from" value="${_evalStatusDateFrom || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
+        <span>עד:</span>
+        <input type="date" id="eval-date-to" value="${_evalStatusDateTo || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
+        ${(_evalStatusDateFrom || _evalStatusDateTo) ? '<button onclick="_clearEvalDateRange()" class="text-xs text-red-600 hover:underline">נקה</button>' : ''}
+      </div>
+      ${!_evalStatusShowAll && !_evalStatusDateFrom && !_evalStatusDateTo && hasOlderItems ? `
+        <button onclick="_showAllEvals()" class="text-xs text-blue-600 hover:underline mr-auto">הצג ישנים יותר ←</button>
+      ` : ''}
+      ${_evalStatusShowAll && !_evalStatusDateFrom && !_evalStatusDateTo ? `
+        <button onclick="_showRecentEvals()" class="text-xs text-blue-600 hover:underline mr-auto">הצג 30 ימים אחרונים בלבד</button>
+      ` : ''}
+    </div>
+
+    <!-- ── Evaluation list ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
-      ${items.length === 0 ? `
+      ${filtered.length === 0 ? `
         <div class="text-center py-8">
-          <div class="text-3xl mb-2">📝</div>
-          <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות עדיין</div>
-          <div class="text-xs text-gray-500">הערכות שתגיש/י מהמסך "הערכה מיידית" או "הערכה תקופתית" יופיעו כאן.</div>
+          <div class="text-3xl mb-2">${_evalStatusFilter === 'drafts' ? '📝' : _evalStatusFilter === 'self' ? '🪞' : '📥'}</div>
+          <div class="text-sm font-medium text-gray-900 mb-1">${_evalStatusFilter === 'drafts' ? 'אין טיוטות פתוחות' : _evalStatusFilter === 'self' ? 'אין הערכות עצמיות' : 'אין הערכות בטווח זה'}</div>
+          <div class="text-xs text-gray-500">${_evalStatusFilter === 'drafts' ? 'טיוטות שתתחיל לכתוב יופיעו כאן עם אפשרות למחיקה' : 'הערכות שתגיש/י יופיעו כאן.'}</div>
         </div>
       ` : `
         <div class="space-y-1">
-          ${items.map(r => `
+          ${filtered.map(r => `
             <div class="flex items-center gap-3 px-2 py-2.5 hover:bg-gray-50 rounded-lg border-b border-gray-50 ${r.isDraft ? 'bg-amber-50/50' : ''}">
-              <div class="w-8 h-8 rounded-full ${r.isDraft ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} flex items-center justify-center text-xs font-semibold shrink-0">${r.initials}</div>
+              <div class="w-8 h-8 rounded-full ${r.isDraft ? 'bg-amber-100 text-amber-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'} flex items-center justify-center text-xs font-semibold shrink-0">${r.isSelfAssessment ? '🪞' : r.initials}</div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-sm font-medium">${r.residentName || '—'}</span>
-                  <span class="text-xs ${r.type==='macro' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
+                  <span class="text-sm font-medium">${r.isSelfAssessment ? (r.categoryLabel || r.category || 'הערכה עצמית') : (r.residentName || '—')}</span>
+                  <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
                   ${r.isDraft ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">טיוטא</span>' : ''}
                 </div>
-                <div class="text-xs text-gray-500 mt-0.5">${(r.categoryLabel || r.category) ? (r.categoryLabel || r.category) + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : 'לפני ' + r.daysAgo + ' ימים'}</div>
+                <div class="text-xs text-gray-500 mt-0.5">${!r.isSelfAssessment && (r.categoryLabel || r.category) ? (r.categoryLabel || r.category) + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : r.daysAgo === 1 ? 'אתמול' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
               ${r.isDraft ? `
                 <div class="flex gap-1.5 shrink-0">
-                  <button onclick="navigateTo('attending-macro')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך</button>
+                  <button onclick="navigateTo('${r.type === 'macro' ? 'attending-macro' : 'attending-micro'}')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך</button>
                   <button onclick="_deleteDraftFromHistory(${r._origIdx})" class="text-xs text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1.5 rounded-lg" title="מחק טיוטא">🗑</button>
                 </div>` : ''}
             </div>
@@ -3922,6 +4048,223 @@ function renderAttendingHistory(role) {
       `}
     </div>
   `;
+}
+
+// ── Eval status helpers ──
+function _setEvalFilter(filter) {
+  _evalStatusFilter = filter;
+  renderEvalStatus();
+}
+function _showAllEvals() {
+  _evalStatusShowAll = true;
+  _evalStatusDateFrom = null;
+  _evalStatusDateTo = null;
+  renderEvalStatus();
+}
+function _showRecentEvals() {
+  _evalStatusShowAll = false;
+  renderEvalStatus();
+}
+function _setEvalDateRange() {
+  _evalStatusDateFrom = document.getElementById('eval-date-from')?.value || null;
+  _evalStatusDateTo = document.getElementById('eval-date-to')?.value || null;
+  renderEvalStatus();
+}
+function _clearEvalDateRange() {
+  _evalStatusDateFrom = null;
+  _evalStatusDateTo = null;
+  _evalStatusShowAll = false;
+  renderEvalStatus();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PORTFOLIO: Personal resident file — all evaluations history
+// PD sees all residents (with selector), Resident sees own only
+// ═══════════════════════════════════════════════════════════════════
+let _portfolioSelectedResident = null;
+
+function renderPortfolio(viewer) {
+  viewer = viewer || 'pd';
+  const screenId = viewer === 'resident' ? 'screen-resident-portfolio' : 'screen-pd-portfolio';
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+
+  const isPd = viewer === 'pd';
+  const role = currentUser?.role || viewer;
+
+  // For resident — always show own data
+  // For PD — show selector, default to first resident
+  let targetResident = null;
+  if (!isPd) {
+    targetResident = CURRENT_RESIDENT || RESIDENTS.find(r => r.id === currentUser?.id) || RESIDENTS[0];
+    _portfolioSelectedResident = targetResident?.id || null;
+  } else {
+    if (!_portfolioSelectedResident && RESIDENTS.length > 0) {
+      _portfolioSelectedResident = RESIDENTS[0].id;
+    }
+    targetResident = RESIDENTS.find(r => r.id === _portfolioSelectedResident) || RESIDENTS[0];
+  }
+
+  if (!targetResident) {
+    screen.innerHTML = `<div class="text-center py-12 text-gray-500 text-sm">לא נמצאו מתמחים</div>`;
+    return;
+  }
+
+  // ── Gather ALL evaluations for this resident (no date limit) ──
+  const rawHistory = _getLocalHistory();
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const seen = new Set();
+  const allEvals = [];
+  [...rawHistory, ...seedEvals].forEach(h => {
+    const key = `${h.timestamp || h.date || 0}_${h.residentId || ''}_${h.type || ''}`;
+    if (!seen.has(key) && h.residentId === targetResident.id && h.subType !== 'draft') {
+      seen.add(key); allEvals.push(h);
+    }
+  });
+
+  // Also add self-assessments by this resident
+  [...rawHistory, ...seedEvals].forEach(h => {
+    const key = `self_${h.timestamp || h.date || 0}_${h.residentId || ''}`;
+    if (!seen.has(key) && h.selfAssessment && h.residentId === targetResident.id) {
+      seen.add(key); allEvals.push(h);
+    }
+  });
+
+  // Sort newest first
+  allEvals.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0));
+
+  // ── Stats ──
+  const microCount = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment).length;
+  const macroCount = allEvals.filter(e => e.type === 'macro').length;
+  const selfCount = allEvals.filter(e => e.selfAssessment).length;
+  const totalCount = allEvals.length;
+
+  // Average EPA score from micro evals
+  const microWithScores = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment && e.epaScores);
+  let avgEpa = '—';
+  if (microWithScores.length > 0) {
+    const allScores = microWithScores.flatMap(e => Object.values(e.epaScores || {}));
+    if (allScores.length > 0) avgEpa = (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1);
+  }
+
+  // PGY badge
+  const pgyLabel = targetResident.pgy ? ['א','ב','ג','ד','ה','ו'][targetResident.pgy - 1] + '׳' : '—';
+  const pgyClass = 'badge-pgy' + (targetResident.pgy || 1);
+
+  screen.innerHTML = `
+    <div class="mb-5">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 class="text-lg font-semibold">${isPd ? 'תיק אישי מתמחה' : 'התיק שלי'}</h1>
+          <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'כל ההערכות וההיסטוריה של מתמחה נבחר' : 'כל ההערכות וההיסטוריה שלי'}</p>
+        </div>
+      </div>
+    </div>
+
+    ${isPd ? `
+    <!-- ── Resident selector (PD only) ── -->
+    <div class="mb-4">
+      <select id="portfolio-resident-select" onchange="_portfolioSelectResident(this.value)" class="w-full md:w-64 border border-gray-200 rounded-lg px-3 py-2 text-sm">
+        ${RESIDENTS.map(r => `<option value="${r.id}" ${r.id === _portfolioSelectedResident ? 'selected' : ''}>${r.name} · שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳</option>`).join('')}
+      </select>
+    </div>
+    ` : ''}
+
+    <!-- ── Resident header card ── -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-semibold">
+          ${(targetResident.name || '??').split(' ').map(w => w[0]).join('').slice(0, 2)}
+        </div>
+        <div>
+          <div class="text-sm font-semibold">${targetResident.name}</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="text-xs px-2 py-0.5 rounded-full ${pgyClass}">שנה ${pgyLabel}</span>
+            ${targetResident.track ? `<span class="text-xs text-gray-500">${targetResident.track}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+          <div class="text-xs text-gray-500">סה"כ הערכות</div>
+          <div class="text-xl font-semibold mt-0.5">${totalCount}</div>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-2.5 text-center">
+          <div class="text-xs text-gray-500">מיידיות</div>
+          <div class="text-xl font-semibold text-blue-700 mt-0.5">${microCount}</div>
+        </div>
+        <div class="bg-purple-50 rounded-lg p-2.5 text-center">
+          <div class="text-xs text-gray-500">תקופתיות</div>
+          <div class="text-xl font-semibold text-purple-700 mt-0.5">${macroCount}</div>
+        </div>
+        <div class="bg-orange-50 rounded-lg p-2.5 text-center">
+          <div class="text-xs text-gray-500">עצמיות</div>
+          <div class="text-xl font-semibold text-orange-700 mt-0.5">${selfCount}</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-2.5 text-center">
+          <div class="text-xs text-gray-500">ממוצע EPA</div>
+          <div class="text-xl font-semibold text-green-700 mt-0.5">${avgEpa}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Evaluation timeline ── -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="text-xs font-medium text-gray-500 uppercase mb-3">כל ההערכות — לפי תאריך</div>
+      ${allEvals.length === 0 ? `
+        <div class="text-center py-8">
+          <div class="text-3xl mb-2">📋</div>
+          <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות עדיין</div>
+          <div class="text-xs text-gray-500">הערכות שיוגשו עבור מתמחה זה יופיעו כאן.</div>
+        </div>
+      ` : `
+        <div class="space-y-2">
+          ${allEvals.map(e => {
+            const ts = new Date(e.timestamp || e.date || 0);
+            const dateStr = ts.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' });
+            const isSelf = !!e.selfAssessment;
+            const typeLabel = e.type === 'macro' ? 'תקופתית' : isSelf ? 'עצמית' : 'מיידית';
+            const typeBg = e.type === 'macro' ? 'bg-purple-100 text-purple-700' : isSelf ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
+            const catLabel = e.categoryLabel || e.category || '';
+            const scores = e.epaScores ? Object.values(e.epaScores) : [];
+            const scoreAvg = scores.length > 0 ? (scores.reduce((a,b) => a+b,0) / scores.length).toFixed(1) : null;
+            const evaluatorName = e.evaluatorName || e.attendingName || '';
+            const feedback = e.visibleFeedback || e.reflection || '';
+            const feedbackShort = feedback.length > 80 ? feedback.slice(0, 80) + '...' : feedback;
+            return `
+              <details class="border border-gray-100 rounded-lg hover:border-gray-200 transition-colors">
+                <summary class="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
+                  <div class="w-7 h-7 rounded-full ${isSelf ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'} flex items-center justify-center text-xs shrink-0">
+                    ${isSelf ? '🪞' : (e.type === 'macro' ? '◐' : '⚡')}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-xs ${typeBg} px-2 py-0.5 rounded-full">${typeLabel}</span>
+                      ${catLabel ? `<span class="text-xs text-gray-500">${catLabel}</span>` : ''}
+                      ${scoreAvg ? `<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">EPA: ${scoreAvg}</span>` : ''}
+                    </div>
+                    <div class="text-xs text-gray-400 mt-0.5">${dateStr}${evaluatorName ? ' · ' + evaluatorName : ''}</div>
+                  </div>
+                  <svg class="arrow w-4 h-4 text-gray-400 shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </summary>
+                <div class="px-3 pb-3 pt-1 border-t border-gray-50 text-xs text-gray-600">
+                  ${scores.length > 0 ? `<div class="mb-2"><span class="font-medium">ציוני EPA:</span> ${Object.entries(e.epaScores || {}).map(([k,v]) => `${k}: ${v}`).join(' · ')}</div>` : ''}
+                  ${feedback ? `<div class="mb-1"><span class="font-medium">${isSelf ? 'תובנה:' : 'משוב:'}</span> ${feedback}</div>` : ''}
+                  ${e.privateNotes ? `<div class="text-gray-400"><span class="font-medium">הערה פרטית:</span> ${e.privateNotes}</div>` : ''}
+                  ${!feedback && !scores.length ? '<div class="text-gray-400">אין פרטים נוספים</div>' : ''}
+                </div>
+              </details>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function _portfolioSelectResident(residentId) {
+  _portfolioSelectedResident = residentId;
+  renderPortfolio('pd');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4777,24 +5120,54 @@ async function _submitMacro(subType, mode) {
   
   // Capture Likert selections from DOM (data attributes set by selectLikert)
   const screen2 = document.getElementById(screenId);
-  const scores = {};
+  const rawScores = {};
   if (screen2) {
     screen2.querySelectorAll('[data-likert-comp]').forEach(c => {
       if (c.dataset.likertComp && c.dataset.selectedScore) {
-        scores[c.dataset.likertComp] = Number(c.dataset.selectedScore);
+        rawScores[c.dataset.likertComp] = Number(c.dataset.selectedScore);
       }
     });
   }
-  
+
+  // Build competencies in the format aggregateMacroEvalsForResident expects:
+  // { pc: { score: 3.2, comment: '...' }, mk: { score: 3.5, comment: '...' }, ... }
+  const competencies = {};
+  const compTextareas = screen2 ? Array.from(screen2.querySelectorAll('details')) : [];
+  ACGME_COMPETENCIES.forEach((comp, compIdx) => {
+    // Average all item scores for this competency (e.g., attending-pc1, attending-pc2, etc.)
+    const itemScores = comp.items
+      .map(item => rawScores[`${mode}-${item.id}`])
+      .filter(s => typeof s === 'number');
+    const avg = itemScores.length > 0
+      ? +(itemScores.reduce((a,b) => a+b, 0) / itemScores.length).toFixed(1)
+      : null;
+
+    // Get the textarea comment for this competency (one per details block)
+    const detailBlock = compTextareas[compIdx];
+    const textarea = detailBlock ? detailBlock.querySelector('textarea') : null;
+    const comment = textarea ? textarea.value.trim() : '';
+
+    if (avg !== null || comment) {
+      competencies[comp.key] = { score: avg, comment: comment };
+    }
+  });
+
+  // Determine evaluatorRole for proper aggregation
+  const evaluatorRole = (mode === 'resident' || mode === 'chief') ? 'resident' : (currentRole || 'attending');
+
   const evaluationData = {
     type: 'macro',
     subType: subType,
     quarterId: quarterId,
     evaluatorId: currentUser?.id || 'unknown',
+    evaluatorRole: evaluatorRole,
+    evaluatorName: currentUser?.name || '',
+    evaluatorEmail: currentUserEmail || '',
     residentId: residentId,
     residentName: residentName,
-    scores: scores,
-    comments: comments,
+    competencies: competencies,
+    scores: rawScores,     // keep raw scores for draft restore
+    comments: comments,    // keep raw comments for draft restore
     mode: mode,
   };
   
@@ -4815,12 +5188,7 @@ async function _submitMacro(subType, mode) {
         clearDraft(window._currentMacroFormId);
       }
       logToAudit('submit_macro_eval', { residentId, subType, quarterId });
-      // Track submission in local history for History screen
-      _saveToLocalHistory({
-        type: 'macro', subType, residentId, residentName, quarterId,
-        evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
-        timestamp: Date.now(),
-      });
+      // Note: submitEvaluation dev path already saves to localStorage + DEMO_SEED
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
       showToast('שגיאה: ' + msg, 'error');
@@ -4923,15 +5291,33 @@ async function approveMacro() {
 // ═══════════════════════════════════════════════════════════════════
 function aggregateMacroEvalsForResident(residentName, quarterId) {
   // Filter all macro evaluations for this resident + quarter
-  // SAFETY: seed data only returns for whitelisted demo users (defense-in-depth).
-  // (Real data source: should also include data fetched from Drive in production)
-  const allMacros = isDemoResident(residentName)
+  // Merges DEMO_SEED_EVALUATIONS + localStorage history
+  const seedMacros = isDemoResident(residentName)
     ? DEMO_SEED_EVALUATIONS.filter(e =>
         e.type === 'macro' &&
         e.residentName === residentName &&
         e.quarterId === quarterId
       )
     : [];
+
+  // Also check localStorage for submitted macro evals (esp. self-evals)
+  let localMacros = [];
+  try {
+    localMacros = _getLocalHistory().filter(e =>
+      e.type === 'macro' &&
+      e.residentName === residentName &&
+      e.quarterId === quarterId &&
+      e.subType !== 'draft'
+    );
+  } catch (ex) { /* ignore */ }
+
+  // Merge + deduplicate by evaluator+timestamp
+  const seen = new Set();
+  const allMacros = [];
+  [...seedMacros, ...localMacros].forEach(e => {
+    const key = `${e.evaluatorEmail || e.evaluatorName || ''}_${e.evaluatorRole || ''}`;
+    if (!seen.has(key)) { seen.add(key); allMacros.push(e); }
+  });
 
   if (allMacros.length === 0) return null;
 
@@ -5078,11 +5464,12 @@ let CURRENT_MACRO_QUARTER_ID = null;
 
 function listResidentsWithMacroEvalsForQuarter(quarterId) {
   // Build map of resident → submission count for this quarter
-  // SAFETY: only returns demo residents in seed data (real residents are
-  // populated from Drive, not from this seed list).
+  // Merges DEMO_SEED_EVALUATIONS + localStorage history
   const counts = new Map();
+
+  // Source 1: seed data
   DEMO_SEED_EVALUATIONS.forEach(e => {
-    if (!isDemoResident(e.residentName)) return;  // defense-in-depth filter
+    if (!isDemoResident(e.residentName)) return;
     if (e.type === 'macro' && e.quarterId === quarterId) {
       const c = counts.get(e.residentName) || { senior: 0, hasSelf: false };
       if (e.evaluatorRole === 'resident') c.hasSelf = true;
@@ -5090,11 +5477,34 @@ function listResidentsWithMacroEvalsForQuarter(quarterId) {
       counts.set(e.residentName, c);
     }
   });
-  return Array.from(counts.entries()).map(([name, c]) => ({
-    name,
-    seniorCount: c.senior,
-    hasSelf: c.hasSelf,
+
+  // Source 2: localStorage history (captures self-evals saved by residents)
+  try {
+    const localHistory = _getLocalHistory();
+    localHistory.forEach(e => {
+      if (e.type === 'macro' && e.quarterId === quarterId && e.subType !== 'draft') {
+        const rName = e.residentName;
+        if (!rName || !isDemoResident(rName)) return;
+        const c = counts.get(rName) || { senior: 0, hasSelf: false };
+        if (e.evaluatorRole === 'resident' || e.selfAssessment) c.hasSelf = true;
+        else c.senior++;
+        counts.set(rName, c);
+      }
+    });
+  } catch (ex) { /* ignore localStorage errors */ }
+
+  // Build result: residents WITH evals first, then ALL other residents
+  const withEvals = Array.from(counts.entries()).map(([name, c]) => ({
+    name, seniorCount: c.senior, hasSelf: c.hasSelf,
   }));
+  const withEvalNames = new Set(withEvals.map(r => r.name));
+
+  // Add remaining residents (no evals yet) so PD can always navigate to any resident
+  const remaining = RESIDENTS
+    .filter(r => !withEvalNames.has(r.name))
+    .map(r => ({ name: r.name, seniorCount: 0, hasSelf: false }));
+
+  return [...withEvals, ...remaining];
 }
 
 function renderMacroPdScreen() {
@@ -5132,7 +5542,37 @@ function renderMacroPdScreen() {
 
   const d = aggregateMacroEvalsForResident(CURRENT_MACRO_RESIDENT_NAME, CURRENT_MACRO_QUARTER_ID);
   if (!d) {
-    target.innerHTML = '<div class="text-xs text-gray-400 py-8 text-center">שגיאה בטעינת הערכות.</div>';
+    // No evals yet for this resident — show empty state with resident selector
+    const residentObj = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+    const pgyLabel = residentObj?.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][residentObj.pgy-1]}׳` : '';
+    target.innerHTML = `
+      <div class="mb-5">
+        <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
+        <p class="text-xs text-gray-500 mt-0.5">סיכום הערכות הבכירים והמתמחה — לאישור סופי</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-sm font-semibold">${(CURRENT_MACRO_RESIDENT_NAME || '??').split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+            <div>
+              <div class="text-base font-medium">${CURRENT_MACRO_RESIDENT_NAME || '—'}</div>
+              <div class="text-xs text-gray-500">${pgyLabel} · ${CURRENT_MACRO_QUARTER_ID}</div>
+            </div>
+          </div>
+          <select onchange="selectMacroResident(this.value)" class="text-sm border border-gray-200 rounded-lg px-3 py-2">
+            ${availableResidents.map(r => {
+              const status = r.hasSelf ? '+עצמי' : r.seniorCount > 0 ? '' : 'אין הערכות';
+              const label = r.seniorCount > 0 || r.hasSelf ? `${r.name} (${r.seniorCount} בכירים${r.hasSelf ? ', +עצמי' : ''})` : `${r.name} (${status})`;
+              return `<option value="${r.name}" ${r.name === CURRENT_MACRO_RESIDENT_NAME ? 'selected' : ''}>${label}</option>`;
+            }).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <div class="text-3xl mb-2">📋</div>
+        <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות תקופתיות עבור ${CURRENT_MACRO_RESIDENT_NAME}</div>
+        <div class="text-xs text-gray-500 max-w-md mx-auto">כשבכירים או המתמחה עצמו/ה יגישו הערכות תקופתיות, הסיכום יופיע כאן.</div>
+      </div>`;
     return;
   }
   // Track for approval flow
@@ -5165,8 +5605,11 @@ function renderMacroPdScreen() {
         </div>
         <select onchange="selectMacroResident(this.value)" class="text-sm border border-gray-200 rounded-lg px-3 py-2">
           ${availableResidents.map(r => {
-            const status = r.hasSelf ? '+עצמי' : 'אין עצמי';
-            return `<option value="${r.name}" ${r.name === d.residentName ? 'selected' : ''}>${r.name} (${r.seniorCount} בכירים, ${status})</option>`;
+            const hasAny = r.seniorCount > 0 || r.hasSelf;
+            const label = hasAny
+              ? `${r.name} (${r.seniorCount} בכירים${r.hasSelf ? ', +עצמי' : ''})`
+              : `${r.name} (אין הערכות)`;
+            return `<option value="${r.name}" ${r.name === d.residentName ? 'selected' : ''}>${label}</option>`;
           }).join('')}
         </select>
       </div>
