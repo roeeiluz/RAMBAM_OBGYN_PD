@@ -625,6 +625,24 @@ const APP_VERSION_NOTES = 'Dev mode: quick role login + impersonation + seed dat
 const DEV_BYPASS_AUTH = true;
 // ────────────────────────────────────────────────────────────────────
 
+// DEV MODE: intercept ALL backend calls — return mock success responses
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+  const _realFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    // Only intercept calls to our Apps Script backend
+    if (typeof url === 'string' && url.includes('script.google.com')) {
+      let action = '';
+      try { action = JSON.parse(opts?.body || '{}').action || ''; } catch(e) {}
+      console.log(`[Dev] Intercepted backend call: ${action}`);
+      // Return a mock success response
+      const mockResponse = { ok: true, data: { token: 'dev-mock', user: {}, id: 'dev-' + Date.now() }, message: 'dev mock' };
+      return Promise.resolve(new Response(JSON.stringify(mockResponse), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    // All other fetches pass through
+    return _realFetch.apply(this, arguments);
+  };
+}
+
 // Session management
 let sessionToken = null;
 let currentUserEmail = null;
@@ -824,6 +842,40 @@ async function submitEvaluation(evaluationData) {
     return { success: false };
   }
 
+  // ── DEV MODE: skip backend, save locally only ──
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    console.log('[Dev] submitEvaluation — saving locally only (no backend)', evaluationData);
+    // Save to localStorage history
+    const historyEntry = {
+      ...evaluationData,
+      timestamp: new Date().toISOString(),
+      date: new Date().toISOString(),
+      subType: evaluationData.subType || 'submitted',
+      _devSeed: true,
+    };
+    _saveToLocalHistory(historyEntry);
+
+    // Also add to DEMO_SEED_EVALUATIONS for immediate screen use
+    if (evaluationData.type === 'micro' || evaluationData.type === 'macro') {
+      DEMO_SEED_EVALUATIONS.push({
+        type: evaluationData.type,
+        timestamp: historyEntry.timestamp,
+        evaluatorEmail: currentUserEmail || '',
+        evaluatorName: currentUser ? currentUser.name : '',
+        evaluatorRole: currentRole || 'attending',
+        residentName: evaluationData.residentName || '',
+        category: evaluationData.category || '',
+        categoryLabel: evaluationData.categoryLabel || evaluationData.category || '',
+        categoryScore: evaluationData.categoryScore || evaluationData.epaScores ? Object.values(evaluationData.epaScores || {}).reduce((a,b)=>a+b,0) / Math.max(Object.keys(evaluationData.epaScores || {}).length, 1) : null,
+        visibleFeedback: evaluationData.visibleFeedback || '',
+        privateNote: evaluationData.privateNote || null,
+        _devSeed: true,
+      });
+    }
+
+    return { ok: true, data: { id: 'dev-' + Date.now() }, message: 'נשמר מקומית (dev mode)' };
+  }
+
   // ── Notification routing (stable: server-side decision) ──
   // We always pass the resident's email. The BACKEND looks up the resident's
   // saved preferences from settings/<email>.json and decides whether to send.
@@ -846,7 +898,7 @@ async function submitEvaluation(evaluationData) {
         data: evaluationData,
       }),
     });
-    
+
     const data = await res.json();
     return data;
   } catch (err) {
