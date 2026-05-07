@@ -256,7 +256,7 @@
       <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
         <div>
           <h1 class="text-lg font-semibold">דשבורד מחלקתי</h1>
-          <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · אפריל 2026</p>
+          <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span></p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button onclick="startMacroQuarter()" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium">📅 פתח רבעון Macro</button>
@@ -267,20 +267,42 @@
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">מתמחים פעילים</div><div class="text-2xl font-medium mt-1" id="kpi-total">—</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">הערכות החודש</div><div class="text-2xl font-medium mt-1">0</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">דורשים מעקב</div><div class="text-2xl font-medium mt-1 text-gray-400">0</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">ממוצע מחלקתי</div><div class="text-2xl font-medium mt-1 text-gray-400">—</div></div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500">מתמחים פעילים</div>
+          <div class="text-2xl font-medium mt-1" id="kpi-total">—</div>
+        </div>
+        <div class="bg-amber-50 border border-amber-100 rounded-lg p-3 cursor-pointer hover:bg-amber-100 transition-colors" onclick="scrollToRiskChart()" title="מתמחים שלא הוערכו 30+ יום">
+          <div class="text-xs text-amber-700 font-medium">⏰ ממתינים להערכה</div>
+          <div class="text-2xl font-medium mt-1 text-amber-600" id="kpi-awaiting">0</div>
+          <div class="text-xs text-amber-500 mt-0.5" id="kpi-awaiting-sub"></div>
+        </div>
+        <div class="bg-red-50 border border-red-100 rounded-lg p-3 cursor-pointer hover:bg-red-100 transition-colors" onclick="scrollToRiskChart()" title="מתמחים עם דגל אדום או כתום">
+          <div class="text-xs text-red-700 font-medium">🚩 דורשים מעקב</div>
+          <div class="text-2xl font-medium mt-1 text-red-600" id="kpi-flagged">0</div>
+          <div class="text-xs text-red-400 mt-0.5" id="kpi-flagged-sub"></div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500">הערכות החודש</div>
+          <div class="flex items-baseline gap-1.5 mt-1">
+            <span class="text-2xl font-medium" id="kpi-evals-month">0</span>
+            <span class="text-xs font-medium" id="kpi-evals-trend"></span>
+          </div>
+          <div class="text-xs text-gray-400 mt-0.5" id="kpi-evals-sub"></div>
+        </div>
       </div>
 
-      <div class="grid md:grid-cols-2 gap-3 mb-5">
+      <div class="grid md:grid-cols-1 gap-3 mb-5" id="risk-chart-section">
         <div class="bg-white rounded-xl border border-gray-200 p-4">
-          <div class="text-xs font-medium text-gray-500 uppercase mb-3">התפלגות לפי שנת התמחות</div>
-          <canvas id="pd-pgy-chart" height="120"></canvas>
-        </div>
-        <div class="bg-white rounded-xl border border-gray-200 p-4">
-          <div class="text-xs font-medium text-gray-500 uppercase mb-3">מגמת ציון מחלקתי</div>
-          <canvas id="pd-trend-chart" height="120"></canvas>
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div class="text-xs font-medium text-gray-500 uppercase">מתמחים לפי ציון — נמוך לגבוה</div>
+            <div class="flex items-center gap-3 text-xs text-gray-400">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block"></span>בסיכון</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"></span>גבולי</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block"></span>תקין</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-gray-300 inline-block"></span>אין נתון</span>
+            </div>
+          </div>
+          <canvas id="pd-risk-chart" height="200"></canvas>
         </div>
       </div>
 
@@ -377,8 +399,8 @@
 
       <div class="grid grid-cols-3 gap-3 mb-4">
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">ציון Q2</div><div class="text-2xl font-medium mt-1" id="r-score">—</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">הערכות</div><div class="text-2xl font-medium mt-1">0</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">יעדים</div><div class="text-2xl font-medium mt-1">—</div></div>
+        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">הערכות</div><div class="text-2xl font-medium mt-1" id="r-eval-count">0</div></div>
+        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">יעדים</div><div class="text-2xl font-medium mt-1" id="r-goals">—</div></div>
       </div>
 
       <div class="grid md:grid-cols-2 gap-3 mb-4">
@@ -594,9 +616,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.8.0';
 const APP_VERSION_DATE = '7.5.2026';
-const APP_VERSION_NOTES = 'Fix: dashboard race condition + micro dropdown shows all residents.';
+const APP_VERSION_NOTES = 'Dev mode: quick role login + impersonation + seed data. Dashboard: operational KPIs + risk chart. UI: hide branding on app screens.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -880,7 +902,291 @@ function showLoginScreen() {
   document.getElementById('login-email').value = '';
   document.getElementById('login-code').value = '';
   clearErrors();
+
+  // Restore branding & version on login screen
+  const rLogo = document.getElementById('rambam-logo-link');
+  const vInd = document.getElementById('version-indicator');
+  if (rLogo) rLogo.style.display = '';
+  if (vInd) vInd.style.display = '';
+
+  // DEV MODE: show role-picker instead of normal login
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    showDevLoginScreen();
+  }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// DEV MODE: Quick login with role picker + user selector
+// ═══════════════════════════════════════════════════════════════════
+function showDevLoginScreen() {
+  const step1 = document.getElementById('login-step-1');
+  const step2 = document.getElementById('login-step-2');
+  if (step1) step1.classList.add('hidden');
+  if (step2) step2.classList.add('hidden');
+
+  // Remove old dev panel if exists
+  const old = document.getElementById('dev-login-panel');
+  if (old) old.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'dev-login-panel';
+  panel.className = 'space-y-4';
+  panel.innerHTML = `
+    <div class="bg-orange-50 border border-orange-200 rounded-lg p-3 text-xs text-orange-800">
+      <strong>🔧 מצב פיתוח</strong> — כניסה מהירה ללא אימות. בחרו תפקיד ואז משתמש.
+    </div>
+    <div class="grid grid-cols-2 gap-2" id="dev-role-buttons">
+      <button onclick="devSelectRole('pd')" class="dev-role-btn p-3 rounded-lg border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition text-center">
+        <div class="text-2xl mb-1">👨‍⚕️</div>
+        <div class="text-sm font-semibold text-gray-800">מנהל תוכנית</div>
+        <div class="text-xs text-gray-500">PD</div>
+      </button>
+      <button onclick="devSelectRole('attending')" class="dev-role-btn p-3 rounded-lg border-2 border-gray-200 hover:border-green-400 hover:bg-green-50 transition text-center">
+        <div class="text-2xl mb-1">🩺</div>
+        <div class="text-sm font-semibold text-gray-800">בכיר</div>
+        <div class="text-xs text-gray-500">Attending</div>
+      </button>
+      <button onclick="devSelectRole('chief')" class="dev-role-btn p-3 rounded-lg border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50 transition text-center">
+        <div class="text-2xl mb-1">⭐</div>
+        <div class="text-sm font-semibold text-gray-800">מתמחה אחראי</div>
+        <div class="text-xs text-gray-500">Chief</div>
+      </button>
+      <button onclick="devSelectRole('resident')" class="dev-role-btn p-3 rounded-lg border-2 border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition text-center">
+        <div class="text-2xl mb-1">🎓</div>
+        <div class="text-sm font-semibold text-gray-800">מתמחה</div>
+        <div class="text-xs text-gray-500">Resident</div>
+      </button>
+    </div>
+    <div id="dev-user-list" class="hidden">
+      <label class="text-sm font-medium text-gray-700 block mb-2">בחרו משתמש:</label>
+      <div id="dev-user-buttons" class="space-y-1 max-h-48 overflow-y-auto"></div>
+    </div>
+    <div class="pt-2 border-t border-gray-200">
+      <button onclick="devSeedAllData()" class="w-full text-xs py-2 px-3 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition">
+        🌱 הזרקת נתונים פיקטיביים לכל המתמחים
+      </button>
+    </div>
+  `;
+
+  // Insert after the login header
+  const loginContainer = step1.parentElement;
+  loginContainer.appendChild(panel);
+}
+
+function devSelectRole(role) {
+  // Highlight selected role button
+  document.querySelectorAll('.dev-role-btn').forEach(btn => {
+    btn.classList.remove('border-blue-500', 'bg-blue-50', 'border-green-500', 'bg-green-50', 'border-purple-500', 'bg-purple-50', 'border-teal-500', 'bg-teal-50');
+    btn.classList.add('border-gray-200');
+  });
+  const idx = { pd: 0, attending: 1, chief: 2, resident: 3 }[role];
+  const colors = { pd: ['border-blue-500','bg-blue-50'], attending: ['border-green-500','bg-green-50'], chief: ['border-purple-500','bg-purple-50'], resident: ['border-teal-500','bg-teal-50'] };
+  const btns = document.querySelectorAll('.dev-role-btn');
+  if (btns[idx]) {
+    btns[idx].classList.remove('border-gray-200');
+    btns[idx].classList.add(...colors[role]);
+  }
+
+  // Build user list for this role
+  let users = [];
+  if (role === 'resident') {
+    users = RESIDENTS.map(r => ({ id: r.id, name: r.name, email: getResidentEmail(r.name) || `${r.id}@dev.local`, sub: `שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳` }));
+  } else {
+    const list = STAFF[role] || [];
+    users = list.map(s => ({ id: s.id, name: s.name, email: s.email, sub: s.note || role }));
+  }
+
+  const container = document.getElementById('dev-user-buttons');
+  container.innerHTML = users.map(u => `
+    <button onclick="devLoginAs('${role}', '${u.email}', '${u.id}')"
+            class="w-full text-right flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-300 transition">
+      <div class="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-semibold shrink-0">
+        ${u.name.split(' ').map(w=>w[0]).filter(Boolean).slice(0,2).join('')}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-gray-800 truncate">${u.name}</div>
+        <div class="text-xs text-gray-400">${u.sub}</div>
+      </div>
+      <span class="text-gray-300 text-lg">←</span>
+    </button>
+  `).join('');
+
+  document.getElementById('dev-user-list').classList.remove('hidden');
+}
+
+function devLoginAs(role, email, userId) {
+  // Set session state directly — no backend calls
+  sessionToken = 'dev-token-' + Date.now();
+  currentUserEmail = email.toLowerCase();
+  currentUserRole = role;
+
+  // Store in localStorage for persistence
+  try {
+    const expiresAt = new Date().getTime() + 48 * 60 * 60 * 1000; // 48h for dev
+    localStorage.setItem('cbme_session_token', sessionToken);
+    localStorage.setItem('cbme_session_expires', expiresAt.toString());
+    localStorage.setItem('cbme_user_email', currentUserEmail);
+    localStorage.setItem('cbme_user_role', role);
+    localStorage.setItem('cbme_user_id', userId);
+    localStorage.setItem('cbme_dev_mode', 'true');
+  } catch (e) {}
+
+  showAppScreen();
+}
+
+// ── DEV: Seed fictional evaluations for ALL residents ──
+function devSeedAllData() {
+  if (!confirm('להזריק הערכות פיקטיביות לכל 13 המתמחים?\n\nזה יוסיף ~5-8 הערכות micro לכל מתמחה ב-localStorage.\nניתן למחוק הכל אחר כך עם devCleanup().')) return;
+
+  const evaluators = (STAFF.attending || []).slice(0, 5);
+  const categories = [
+    { key: 'delivery-room', label: 'חדר לידה' },
+    { key: 'cesarean', label: 'קיסרי' },
+    { key: 'or-procedures', label: 'חדר ניתוח' },
+    { key: 'er-triage', label: 'מיון נשים' },
+    { key: 'high-risk', label: 'הריון בסיכון' },
+    { key: 'ultrasound', label: 'אולטרסאונד' },
+    { key: 'ward', label: 'מחלקה' },
+  ];
+
+  const feedbacks = [
+    'ביצוע טוב, צריך עוד חשיפה למקרים מורכבים.',
+    'עצמאות הולכת ומשתפרת. ממשיך לעקוב.',
+    'ידע תאורטי מצוין, הביצוע המעשי דורש תרגול.',
+    'התקדמות יפה מהרבעון הקודם.',
+    'צריך שיפור בתקשורת עם הצוות.',
+    'מראה בגרות קלינית מעבר לשנת ההתמחות.',
+    'עדיין זקוק לפיקוח צמוד במצבי חירום.',
+    'ביצוע סביר, יש מקום לשיפור בדיוק.',
+    'מרשים — עצמאות מלאה. ממליץ להמשיך.',
+    'נדרש תרגול נוסף לפני שניתן לעבוד באופן עצמאי.',
+  ];
+
+  const now = Date.now();
+  const history = _getLocalHistory();
+  let addedCount = 0;
+
+  RESIDENTS.forEach(r => {
+    // Generate 5-8 micro evaluations per resident in the last 3 months
+    const numEvals = 5 + Math.floor(Math.random() * 4);
+    // Score range based on PGY — more senior = generally higher
+    const baseScore = Math.min(2.5 + (r.pgy * 0.4), 4.2);
+
+    for (let i = 0; i < numEvals; i++) {
+      const daysAgo = Math.floor(Math.random() * 90);
+      const ts = new Date(now - daysAgo * 24 * 60 * 60 * 1000);
+      const evaluator = evaluators[Math.floor(Math.random() * evaluators.length)];
+      const cat = categories[Math.floor(Math.random() * categories.length)];
+      const score = Math.max(1, Math.min(5, Math.round((baseScore + (Math.random() * 1.5 - 0.75)) * 10) / 10));
+
+      const entry = {
+        type: 'micro',
+        subType: 'submitted',
+        timestamp: ts.toISOString(),
+        date: ts.toISOString(),
+        evaluatorId: evaluator.id,
+        evaluatorName: evaluator.name,
+        evaluatorEmail: evaluator.email,
+        residentId: r.id,
+        residentName: r.name,
+        category: cat.key,
+        categoryLabel: cat.label,
+        categoryScore: score,
+        visibleFeedback: feedbacks[Math.floor(Math.random() * feedbacks.length)],
+        privateNote: null,
+        _devSeed: true, // marker for cleanup
+      };
+      history.unshift(entry);
+      addedCount++;
+    }
+  });
+
+  // Also add to DEMO_SEED_EVALUATIONS for functions that read from there
+  RESIDENTS.forEach(r => {
+    if (isDemoResident(r.name)) return; // skip — already has seed data
+    const numEvals = 5 + Math.floor(Math.random() * 4);
+    const baseScore = Math.min(2.5 + (r.pgy * 0.4), 4.2);
+    for (let i = 0; i < numEvals; i++) {
+      const daysAgo = Math.floor(Math.random() * 90);
+      const ts = new Date(now - daysAgo * 24 * 60 * 60 * 1000);
+      const evaluator = evaluators[Math.floor(Math.random() * evaluators.length)];
+      const cat = categories[Math.floor(Math.random() * categories.length)];
+      const score = Math.max(1, Math.min(5, Math.round((baseScore + (Math.random() * 1.5 - 0.75)) * 10) / 10));
+
+      DEMO_SEED_EVALUATIONS.push({
+        type: 'micro',
+        timestamp: ts.toISOString(),
+        evaluatorEmail: evaluator.email,
+        evaluatorName: evaluator.name,
+        evaluatorRole: 'attending',
+        residentName: r.name,
+        category: cat.key,
+        categoryLabel: cat.label,
+        categoryScore: score,
+        visibleFeedback: feedbacks[Math.floor(Math.random() * feedbacks.length)],
+        privateNote: null,
+        _devSeed: true,
+      });
+    }
+  });
+
+  // Update DEMO_USERS_WHITELIST to include all residents
+  RESIDENTS.forEach(r => DEMO_USERS_WHITELIST.add(r.name));
+
+  // Recalculate scores
+  RESIDENTS.forEach(r => {
+    const evals = DEMO_SEED_EVALUATIONS.filter(e => e.residentName === r.name && e.type === 'micro' && typeof e.categoryScore === 'number');
+    if (evals.length > 0) {
+      r.score = Math.round((evals.reduce((s, e) => s + e.categoryScore, 0) / evals.length) * 10) / 10;
+      r.flag = r.score < 3.0 ? 'red' : r.score < 3.5 ? 'amber' : 'green';
+    }
+  });
+
+  // Save to localStorage
+  try {
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(history));
+    localStorage.setItem('cbme_dev_seed_active', 'true');
+  } catch (e) {}
+
+  alert(`✅ הוזרקו ${addedCount} הערכות פיקטיביות עבור ${RESIDENTS.length} מתמחים.\n\nלמחיקה: הקלידו devCleanup() בקונסול, או לחצו על כפתור "ניקוי נתוני dev" בהגדרות.`);
+  location.reload();
+}
+
+// ── DEV: Cleanup — remove all seeded data ──
+function devCleanup() {
+  if (!confirm('למחוק את כל הנתונים הפיקטיביים?\n\n• הערכות עם סימן _devSeed יימחקו\n• ציוני מבחנים ופעולות אחרות יישמרו\n• DEMO_SEED_EVALUATIONS יחזור למצב מקורי')) return;
+
+  // Clean localStorage history
+  try {
+    const history = _getLocalHistory();
+    const cleaned = history.filter(h => !h._devSeed);
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(cleaned));
+    localStorage.removeItem('cbme_dev_seed_active');
+    console.log(`[Dev Cleanup] Removed ${history.length - cleaned.length} seeded evals from localStorage (kept ${cleaned.length})`);
+  } catch (e) {}
+
+  // Clean DEMO_SEED_EVALUATIONS (remove entries with _devSeed)
+  for (let i = DEMO_SEED_EVALUATIONS.length - 1; i >= 0; i--) {
+    if (DEMO_SEED_EVALUATIONS[i]._devSeed) DEMO_SEED_EVALUATIONS.splice(i, 1);
+  }
+
+  // Reset whitelist to original
+  DEMO_USERS_WHITELIST.clear();
+  DEMO_USERS_WHITELIST.add('רן דוגמן');
+  DEMO_USERS_WHITELIST.add('dr.iluz.roee@gmail.com');
+
+  // Reset resident scores
+  RESIDENTS.forEach(r => {
+    r.score = getSeedScoreForResident(r.name);
+    r.flag = 'none';
+  });
+
+  alert('✅ כל הנתונים הפיקטיביים נמחקו. המערכת מוכנה לייצור.');
+  location.reload();
+}
+
+// Make devCleanup accessible from console
+window.devCleanup = devCleanup;
 
 function showAppScreen() {
   document.getElementById('login-screen').classList.add('hidden');
@@ -888,6 +1194,12 @@ function showAppScreen() {
   document.getElementById('top-bar').classList.remove('hidden');
   document.getElementById('top-bar').classList.add('flex');
   document.getElementById('user-email-display').textContent = currentUserEmail;
+
+  // Hide branding & version — only shown on login screen (overlap mobile nav)
+  const rLogo = document.getElementById('rambam-logo-link');
+  const vInd = document.getElementById('version-indicator');
+  if (rLogo) rLogo.style.display = 'none';
+  if (vInd) vInd.style.display = 'none';
 
   // Resolve full user identity from STAFF/RESIDENTS based on email
   // CRITICAL: never fall back to 'resident' — that caused demo data leakage in v2.6.3
@@ -903,7 +1215,12 @@ function showAppScreen() {
 
   if (resolvedRole === 'resident') {
     // Find resident by email
-    const r = RESIDENTS.find(x => getResidentEmail(x.name) === currentUserEmail);
+    let r = RESIDENTS.find(x => getResidentEmail(x.name) === currentUserEmail);
+    // DEV MODE fallback: find by stored userId when email doesn't match
+    if (!r && typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+      const devId = localStorage.getItem('cbme_user_id');
+      if (devId) r = RESIDENTS.find(x => x.id === devId);
+    }
     if (r) {
       user = { role: 'resident', id: r.id, name: 'ד"ר ' + r.name, initials: r.initials, email: currentUserEmail };
       CURRENT_RESIDENT = r;
@@ -911,7 +1228,12 @@ function showAppScreen() {
   } else {
     // Find staff member by email
     const list = STAFF[resolvedRole] || [];
-    const s = list.find(x => x.email === currentUserEmail);
+    let s = list.find(x => x.email === currentUserEmail);
+    // DEV MODE fallback: find by stored userId
+    if (!s && typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+      const devId = localStorage.getItem('cbme_user_id');
+      if (devId) s = list.find(x => x.id === devId);
+    }
     if (s) {
       user = { role: resolvedRole, id: s.id, name: s.name, initials: s.initials, email: currentUserEmail };
     }
@@ -2282,51 +2604,137 @@ let activePgyFilter = 'all';
 function renderPdDashboard() {
   document.getElementById('kpi-total').textContent = RESIDENTS.length;
   document.getElementById('resident-count-sub').textContent = `${RESIDENTS.length} מתמחים פעילים`;
+  const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
 
-  // PGY chart
-  if (pdCharts.pgy) pdCharts.pgy.destroy();
-  const pgyDist = [1,2,3,4,5,6].map(p => RESIDENTS.filter(r => r.pgy === p).length);
-  pdCharts.pgy = new Chart(document.getElementById('pd-pgy-chart'), {
+  const history = (function() { try { return _getLocalHistory(); } catch(e) { return []; } })();
+  const now = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
+
+  // ── KPI 1: Awaiting evaluation (30+ days without eval) ──
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const awaitingList = RESIDENTS.filter(r => {
+    const rEvals = history.filter(h => h.residentId === r.id && h.subType !== 'draft');
+    if (rEvals.length === 0) return true;
+    const lastDate = new Date(Math.max(...rEvals.map(h => new Date(h.timestamp || h.date).getTime())));
+    return lastDate < thirtyDaysAgo;
+  });
+  document.getElementById('kpi-awaiting').textContent = awaitingList.length;
+  const awSub = document.getElementById('kpi-awaiting-sub');
+  if (awaitingList.length > 0) {
+    awSub.textContent = awaitingList.slice(0,2).map(r => r.name.split(' ')[0]).join(', ') + (awaitingList.length > 2 ? '…' : '');
+  } else {
+    awSub.textContent = 'הכל מעודכן ✓';
+  }
+
+  // ── KPI 2: Flagged residents (red/amber or low score) ──
+  const flaggedResidents = RESIDENTS.filter(r => r.flag === 'red' || r.flag === 'amber' || (r.score != null && r.score < 3.0));
+  document.getElementById('kpi-flagged').textContent = flaggedResidents.length;
+  const flSub = document.getElementById('kpi-flagged-sub');
+  if (flaggedResidents.length > 0) {
+    flSub.textContent = flaggedResidents.slice(0,2).map(r => r.name.split(' ')[0]).join(', ') + (flaggedResidents.length > 2 ? '…' : '');
+  } else {
+    flSub.textContent = 'אין התראות';
+  }
+
+  // ── KPI 3: Evaluations this month + comparison ──
+  const monthlyEvals = history.filter(h => {
+    if (h.subType === 'draft') return false;
+    const d = new Date(h.timestamp || h.date);
+    return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+  });
+  document.getElementById('kpi-evals-month').textContent = monthlyEvals.length;
+
+  // Compare to last month
+  const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+  const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear;
+  const lastMonthEvals = history.filter(h => {
+    if (h.subType === 'draft') return false;
+    const d = new Date(h.timestamp || h.date);
+    return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+  });
+  const trendEl = document.getElementById('kpi-evals-trend');
+  const subEl = document.getElementById('kpi-evals-sub');
+  if (lastMonthEvals.length > 0) {
+    const diff = monthlyEvals.length - lastMonthEvals.length;
+    trendEl.textContent = diff > 0 ? `↑${diff}` : diff < 0 ? `↓${Math.abs(diff)}` : '=';
+    trendEl.className = `text-xs font-medium ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`;
+    subEl.textContent = `לעומת ${lastMonthEvals.length} בחודש שעבר`;
+  } else {
+    trendEl.textContent = '';
+    subEl.textContent = 'חודש ראשון';
+  }
+
+  // ── Risk chart: residents sorted by score, lowest first ──
+  if (pdCharts.risk) pdCharts.risk.destroy();
+  const sorted = [...RESIDENTS].sort((a, b) => {
+    if (a.score == null && b.score == null) return 0;
+    if (a.score == null) return -1;
+    if (b.score == null) return 1;
+    return a.score - b.score;
+  });
+  const riskLabels = sorted.map(r => r.name.split(' ')[0] + ' ' + (r.name.split(' ')[1] || '').charAt(0) + '.');
+  const riskData = sorted.map(r => r.score != null ? r.score : 0);
+  const riskColors = sorted.map(r => {
+    if (r.score == null) return '#d1d5db';
+    if (r.score < 3.0) return '#ef4444';
+    if (r.score < 3.5) return '#f59e0b';
+    return '#10b981';
+  });
+  // Dynamic chart height based on resident count
+  const chartCanvas = document.getElementById('pd-risk-chart');
+  const barHeight = Math.max(22, Math.min(30, 300 / sorted.length));
+  chartCanvas.parentElement.style.height = (sorted.length * barHeight + 40) + 'px';
+
+  pdCharts.risk = new Chart(chartCanvas, {
     type: 'bar',
     data: {
-      labels: ['א','ב','ג','ד','ה','ו'],
+      labels: riskLabels,
       datasets: [{
-        data: pgyDist,
-        backgroundColor: ['#93c5fd','#fcd34d','#86efac','#f9a8d4','#c4b5fd','#fca5a5'],
-        borderRadius: 4,
+        data: riskData,
+        backgroundColor: riskColors,
+        borderRadius: 3,
+        barThickness: Math.max(14, barHeight - 8),
       }]
     },
     options: {
+      indexAxis: 'y',
       responsive: true,
-      plugins: { legend: {display: false}, tooltip: {callbacks: {label: c => `${c.parsed.y} מתמחים`}} },
-      scales: { y: {beginAtZero: true, ticks: {stepSize:1, font:{size:11}}, grid:{color:'#f3f4f6'}}, x: {ticks:{font:{size:11}}, grid:{display:false}} }
-    }
-  });
-
-  // Trend chart
-  if (pdCharts.trend) pdCharts.trend.destroy();
-  pdCharts.trend = new Chart(document.getElementById('pd-trend-chart'), {
-    type: 'line',
-    data: {
-      labels: ['Q3 25','Q4 25','Q1 26','Q2 26'],
-      datasets: [{
-        label: 'ממוצע מחלקתי',
-        data: [null, null, null, null],
-        borderColor: '#1d4ed8',
-        backgroundColor: 'rgba(29,78,216,0.08)',
-        fill: true, tension: 0.35, pointRadius: 4, borderWidth: 2,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: {display: false} },
-      scales: { y: {min: 2.5, max: 5, ticks: {font:{size:11}}, grid: {color:'#f3f4f6'}}, x: {ticks: {font:{size:11}}, grid:{display:false}} }
+      maintainAspectRatio: false,
+      onClick: (evt, elems) => {
+        if (elems.length > 0) {
+          const idx = elems[0].index;
+          openProfile(sorted[idx].id);
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => sorted[items[0].dataIndex].name,
+            label: (c) => {
+              const r = sorted[c.dataIndex];
+              return r.score != null ? `ציון EPA: ${r.score.toFixed(1)} / 5` : 'אין הערכות עדיין';
+            }
+          }
+        }
+      },
+      scales: {
+        x: { min: 0, max: 5, ticks: { stepSize: 1, font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+        y: { ticks: { font: { size: 11 }, crossAlign: 'far' }, grid: { display: false } }
+      }
     }
   });
 
   renderResidentsTable();
   renderFlags();
   renderActivity();
+}
+
+function scrollToRiskChart() {
+  const el = document.getElementById('risk-chart-section');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function renderResidentsTable() {
@@ -2673,6 +3081,13 @@ function renderResidentDashboard() {
 
   document.getElementById('resident-header-info').textContent = `${r.name} · שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳ · Q2 2026`;
   document.getElementById('r-score').textContent = r.score != null ? r.score.toFixed(1) : '—';
+
+  // KPI: evaluation count for this resident (from localStorage)
+  try {
+    const history = _getLocalHistory();
+    const myEvals = history.filter(h => h.residentId === r.id && h.subType !== 'draft');
+    document.getElementById('r-eval-count').textContent = myEvals.length;
+  } catch (e) { /* keep 0 */ }
 
   if (rCharts.radar) rCharts.radar.destroy();
   if (rCharts.trend) rCharts.trend.destroy();
@@ -3551,21 +3966,57 @@ async function submitSelfMicro() {
     showToast('שגיאה: רק מתמחה יכול להגיש משוב עצמי', 'error');
     return;
   }
-  
+
+  // Validate: event type must be selected
+  if (!selfSelectedEvent) {
+    showToast('יש לבחור סוג אירוע לפני שליחה', 'error');
+    return;
+  }
+
   // Gather form data — self-micro-section textareas
   const screenId = currentRole === 'chief' ? 'screen-chief-self-micro' : 'screen-resident-self-micro';
   const screen = document.getElementById(screenId);
   const textareas = screen ? Array.from(screen.querySelectorAll('textarea')) : [];
   const reflection = textareas.map(t => t.value).filter(Boolean).join('\n---\n');
-  
+
+  // Gather EPA scores from selected likert buttons
+  const epaScores = {};
+  let scoredCount = 0;
+  const section = document.getElementById('self-micro-section');
+  if (section) {
+    section.querySelectorAll('.likert-btn.selected').forEach(btn => {
+      const container = btn.parentElement;
+      const comp = container.dataset.likertComp;
+      const score = parseInt(container.dataset.selectedScore);
+      if (comp && !isNaN(score)) {
+        epaScores[comp] = score;
+        scoredCount++;
+      }
+    });
+  }
+
+  // Validate: at least one EPA scored
+  if (scoredCount === 0) {
+    showToast('יש לדרג לפחות פריט אחד לפני שליחה', 'error');
+    return;
+  }
+
+  // Build category from event type + optional subproc
+  const eventLabel = EVENT_LIBRARY[selfSelectedEvent]?.label || selfSelectedEvent;
+  const category = selfSelectedSubproc
+    ? `${eventLabel} — ${selfSelectedSubproc}`
+    : eventLabel;
+
   const evaluationData = {
     type: 'micro',
     evaluatorId: currentUser.id,
     residentId: currentUser.id,        // self
     residentName: currentUser.name,
-    category: 'self-reflection',
+    category: category,
     visibleFeedback: reflection,
     privateNote: null,
+    epaScores: epaScores,
+    selfAssessment: true,
   };
   
   showToast('שומר משוב עצמי...', 'info');
@@ -8595,6 +9046,25 @@ async function performSmartAnalysis(query, scope) {
 // ═══════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════
+
+// DEV: if seed data was injected, restore scores from localStorage on boot
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH && localStorage.getItem('cbme_dev_seed_active') === 'true') {
+  try {
+    // Expand whitelist so all residents get seed data treatment
+    RESIDENTS.forEach(r => DEMO_USERS_WHITELIST.add(r.name));
+    // Recalculate scores from localStorage history
+    const hist = _getLocalHistory();
+    RESIDENTS.forEach(r => {
+      const rEvals = hist.filter(h => h.residentId === r.id && h.subType !== 'draft' && typeof h.categoryScore === 'number');
+      if (rEvals.length > 0) {
+        r.score = Math.round((rEvals.reduce((s, e) => s + e.categoryScore, 0) / rEvals.length) * 10) / 10;
+        r.flag = r.score < 3.0 ? 'red' : r.score < 3.5 ? 'amber' : 'green';
+      }
+    });
+    console.log('[Dev] Restored seed scores for', RESIDENTS.length, 'residents');
+  } catch (e) { console.warn('[Dev] Score restore failed:', e); }
+}
+
 if (initializeSession()) {
   showAppScreen();
 } else {
