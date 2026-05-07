@@ -616,9 +616,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const APP_VERSION_DATE = '7.5.2026';
-const APP_VERSION_NOTES = 'Dev mode: quick role login + impersonation + seed data. Dashboard: operational KPIs + risk chart. UI: hide branding on app screens.';
+const APP_VERSION_NOTES = 'Reports revision (6 new builders). Macro form flow fix + auto-draft. Self-micro recent history. Category label in history. Draft banner dedup.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1617,6 +1617,12 @@ function showRestoreBanner(screenId, formId, restoreFn) {
   if (!screen) return false;
   const minutesAgo = Math.max(1, Math.round((Date.now() - draft.timestamp) / 60000));
   const ageStr = minutesAgo < 60 ? `${minutesAgo} דקות` : `${Math.round(minutesAgo / 60)} שעות`;
+  // Remove any existing draft banner for this formId (prevent duplicates)
+  const existingBanner = document.getElementById(`draft-banner-${formId}`);
+  if (existingBanner) existingBanner.remove();
+  // Also limit to one draft banner per screen (prevent stacking)
+  const existingScreenBanners = screen.querySelectorAll('[id^="draft-banner-"]');
+  existingScreenBanners.forEach(b => b.remove());
   const banner = document.createElement('div');
   banner.id = `draft-banner-${formId}`;
   banner.className = 'bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3 flex items-center gap-2 justify-between';
@@ -3823,6 +3829,7 @@ async function submitMicroEval() {
     residentId: resident.id,
     residentName: resident.name,
     category: selectedEvent,
+    categoryLabel: EVENT_LIBRARY[selectedEvent]?.label || selectedEvent,
     categoryScore: categoryScore,
     visibleFeedback: visibleFeedback,
     privateNote: privateNote,
@@ -3843,7 +3850,7 @@ async function submitMicroEval() {
       _saveToLocalHistory({
         type: 'micro', subType: 'final', residentId: resident.id, residentName: resident.name,
         evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
-        category: selectedEvent, timestamp: Date.now(),
+        category: selectedEvent, categoryLabel: EVENT_LIBRARY[selectedEvent]?.label || selectedEvent, timestamp: Date.now(),
       });
       // Navigate to history after delay
       setTimeout(() => navigateTo(currentRole === 'chief' ? 'chief-history' : 'attending-history'), 1500);  // PD also uses attending-history
@@ -3902,7 +3909,7 @@ function renderAttendingHistory(role) {
                   <span class="text-xs ${r.type==='macro' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
                   ${r.isDraft ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">טיוטא</span>' : ''}
                 </div>
-                <div class="text-xs text-gray-500 mt-0.5">${r.category ? r.category + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : 'לפני ' + r.daysAgo + ' ימים'}</div>
+                <div class="text-xs text-gray-500 mt-0.5">${(r.categoryLabel || r.category) ? (r.categoryLabel || r.category) + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
               ${r.isDraft ? `
                 <div class="flex gap-1.5 shrink-0">
@@ -3996,8 +4003,20 @@ function renderSelfMicroForm(role) {
   const subSec = document.getElementById('self-subproc-section');
   if (subSec) subSec.classList.add('hidden');
 
-  // Pilot: starts empty. Real entries will accumulate via localStorage in stage 2.
-  const recent = [];
+  // Load self-micro entries from localStorage history + DEMO_SEED_EVALUATIONS
+  const selfHistory = _getLocalHistory().filter(h => h.type === 'micro' && h.selfAssessment && h.residentId === currentUser?.id);
+  const seedSelf = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : [])
+    .filter(e => e.type === 'micro' && e.selfAssessment && e.residentId === currentUser?.id);
+  const allSelf = [...selfHistory, ...seedSelf].sort((a,b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0)).slice(0, 5);
+  const recent = allSelf.map(h => {
+    const ts = new Date(h.timestamp || h.date || Date.now());
+    const daysAgo = Math.max(0, Math.round((Date.now() - ts.getTime()) / (24*60*60*1000)));
+    const dateStr = daysAgo === 0 ? 'היום' : 'לפני ' + daysAgo + ' ימים';
+    const scores = h.epaScores ? Object.values(h.epaScores) : [];
+    const avgScore = scores.length > 0 ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : '—';
+    const parts = (h.visibleFeedback || h.reflection || '').split('---');
+    return { event: h.categoryLabel || h.category || '—', sub: '', date: dateStr, score: avgScore, good: parts[0]?.trim() || '—', improve: parts[1]?.trim() || '' };
+  });
   const histEl = document.getElementById('self-micro-history');
   if (histEl) histEl.innerHTML = recent.length === 0
     ? '<div class="text-xs text-gray-400 py-3">אין רישומים עדיין. רישום משוב עצמי הראשון שלך יופיע כאן.</div>'
@@ -4008,8 +4027,8 @@ function renderSelfMicroForm(role) {
         <span class="text-xs text-gray-400">${r.date}</span>
         <span class="mr-auto text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">דירוג עצמי: ${r.score}/5</span>
       </div>
-      <div class="text-xs text-gray-700 mb-1"><span class="text-green-700 font-medium">+ </span>${r.good}</div>
-      <div class="text-xs text-gray-700"><span class="text-amber-700 font-medium">→ </span>${r.improve}</div>
+      ${r.good !== '—' ? `<div class="text-xs text-gray-700 mb-1"><span class="text-green-700 font-medium">+ </span>${r.good}</div>` : ''}
+      ${r.improve ? `<div class="text-xs text-gray-700"><span class="text-amber-700 font-medium">→ </span>${r.improve}</div>` : ''}
     </div>
   `).join('');
 
@@ -4146,6 +4165,7 @@ async function submitSelfMicro() {
     residentId: currentUser.id,        // self
     residentName: currentUser.name,
     category: category,
+    categoryLabel: eventLabel,
     visibleFeedback: reflection,
     privateNote: null,
     epaScores: epaScores,
