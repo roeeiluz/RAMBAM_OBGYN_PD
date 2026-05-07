@@ -9047,22 +9047,45 @@ async function performSmartAnalysis(query, scope) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 
-// DEV: if seed data was injected, restore scores from localStorage on boot
+// DEV: if seed data was injected, restore EVERYTHING from localStorage on boot
 if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH && localStorage.getItem('cbme_dev_seed_active') === 'true') {
   try {
     // Expand whitelist so all residents get seed data treatment
     RESIDENTS.forEach(r => DEMO_USERS_WHITELIST.add(r.name));
-    // Recalculate scores from localStorage history
+
+    // Restore DEMO_SEED_EVALUATIONS from localStorage (critical for profile/history screens)
     const hist = _getLocalHistory();
+    const devSeeded = hist.filter(h => h._devSeed);
+    let restoredCount = 0;
+    devSeeded.forEach(h => {
+      // Re-add to DEMO_SEED_EVALUATIONS in the format those functions expect
+      DEMO_SEED_EVALUATIONS.push({
+        type: h.type || 'micro',
+        timestamp: h.timestamp || h.date,
+        evaluatorEmail: h.evaluatorEmail || '',
+        evaluatorName: h.evaluatorName || '',
+        evaluatorRole: 'attending',
+        residentName: h.residentName,
+        category: h.category,
+        categoryLabel: h.categoryLabel,
+        categoryScore: h.categoryScore,
+        visibleFeedback: h.visibleFeedback || '',
+        privateNote: h.privateNote || null,
+        _devSeed: true,
+      });
+      restoredCount++;
+    });
+
+    // Recalculate scores from the full set
     RESIDENTS.forEach(r => {
-      const rEvals = hist.filter(h => h.residentId === r.id && h.subType !== 'draft' && typeof h.categoryScore === 'number');
+      const rEvals = DEMO_SEED_EVALUATIONS.filter(e => e.residentName === r.name && e.type === 'micro' && typeof e.categoryScore === 'number');
       if (rEvals.length > 0) {
         r.score = Math.round((rEvals.reduce((s, e) => s + e.categoryScore, 0) / rEvals.length) * 10) / 10;
         r.flag = r.score < 3.0 ? 'red' : r.score < 3.5 ? 'amber' : 'green';
       }
     });
-    console.log('[Dev] Restored seed scores for', RESIDENTS.length, 'residents');
-  } catch (e) { console.warn('[Dev] Score restore failed:', e); }
+    console.log(`[Dev] Restored ${restoredCount} seed evals into DEMO_SEED_EVALUATIONS + scores for ${RESIDENTS.length} residents`);
+  } catch (e) { console.warn('[Dev] Seed restore failed:', e); }
 }
 
 if (initializeSession()) {
