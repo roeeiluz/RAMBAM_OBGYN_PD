@@ -1571,6 +1571,25 @@ function _getLocalHistory() {
   } catch (e) { return []; }
 }
 
+function _deleteDraftFromHistory(index) {
+  try {
+    const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
+    if (index >= 0 && index < history.length && history[index].subType === 'draft') {
+      const removed = history[index];
+      history.splice(index, 1);
+      localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(history));
+      // Also remove from DEMO_SEED_EVALUATIONS if present
+      if (typeof DEMO_SEED_EVALUATIONS !== 'undefined' && removed) {
+        const dIdx = DEMO_SEED_EVALUATIONS.findIndex(e => e.subType === 'draft' && e.residentId === removed.residentId && e.quarterId === removed.quarterId);
+        if (dIdx >= 0) DEMO_SEED_EVALUATIONS.splice(dIdx, 1);
+      }
+      showToast('הטיוטא נמחקה', 'success');
+      // Re-render history screen
+      renderAttendingHistory();
+    }
+  } catch (e) { console.warn('Draft delete failed:', e); }
+}
+
 // Attach a debounced auto-save to all inputs/textareas/buttons within a screen
 // captureFn(): returns the form's current state object
 function attachAutoSave(screenId, formId, captureFn) {
@@ -3793,6 +3812,7 @@ function renderAttendingHistory(role) {
   const rawHistory = _getLocalHistory();
   const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
   const items = rawHistory
+    .map((h, origIdx) => ({ ...h, _origIdx: origIdx }))
     .filter(h => Date.now() - h.timestamp < thirtyDaysMs)
     .map(h => {
       const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
@@ -3827,7 +3847,11 @@ function renderAttendingHistory(role) {
                 </div>
                 <div class="text-xs text-gray-500 mt-0.5">${r.category ? r.category + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
-              ${r.isDraft ? `<button onclick="navigateTo('attending-macro')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך עריכה</button>` : ''}
+              ${r.isDraft ? `
+                <div class="flex gap-1.5 shrink-0">
+                  <button onclick="navigateTo('attending-macro')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך</button>
+                  <button onclick="_deleteDraftFromHistory(${r._origIdx})" class="text-xs text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1.5 rounded-lg" title="מחק טיוטא">🗑</button>
+                </div>` : ''}
             </div>
           `).join('')}
         </div>
@@ -4620,12 +4644,12 @@ async function _submitMacro(subType, mode) {
       residentId = r?.id;
       residentName = r ? 'ד"ר ' + r.name : 'unknown';
     } else {
-      // Fall back to demo resident if no selector
-      residentId = CURRENT_RESIDENT?.id || 'unknown';
-      residentName = CURRENT_RESIDENT ? 'ד"ר ' + CURRENT_RESIDENT.name : 'unknown';
+      // No resident selected — block save (including drafts)
+      showToast('יש לבחור מתמחה לפני שמירה', 'error');
+      return;
     }
   }
-  
+
   if (!residentId) {
     showToast('שגיאה: לא ניתן לזהות את המתמחה', 'error');
     return;
