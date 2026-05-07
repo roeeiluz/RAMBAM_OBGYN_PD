@@ -844,7 +844,7 @@ async function submitEvaluation(evaluationData) {
 
   // ── DEV MODE: skip backend, save locally only ──
   if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
-    console.log('[Dev] submitEvaluation — saving locally only (no backend)', evaluationData);
+    console.log('[Dev] submitEvaluation — saving locally only (no backend, no email sent)', evaluationData);
     // Save to localStorage history
     const historyEntry = {
       ...evaluationData,
@@ -2424,11 +2424,15 @@ const SETTINGS_DEFAULTS = {
   emailOnMicroSubmit: false,    // resident gets copy of micro evals about them
   emailOnMacroSubmit: false,    // resident gets copy of macro evals about them
   emailOnMacroApproved: true,   // resident notified when PD approves their macro
-  
+
   // Display
   theme: 'light',               // 'light' | 'dark'
   dashboardLayout: 'default',   // 'default' | 'compact' | 'detailed'
   chartStyle: 'radar',          // 'radar' | 'bar' | 'line' (for personal score)
+
+  // Profile — English name for reports/fellowship applications
+  nameEN: '',                   // e.g., "John Doe, MD"
+  titleEN: '',                  // e.g., "Senior Resident, OB/GYN"
 };
 
 const SETTINGS_STORAGE_KEY = 'cbme_user_settings';
@@ -2509,11 +2513,64 @@ function applyTheme(theme) {
 }
 
 function navigateTo(screenId) {
+  // ── Auto-save macro draft when navigating away from a macro form ──
+  const macroScreens = ['attending-macro', 'resident-self', 'chief-self'];
+  if (macroScreens.includes(currentScreen) && screenId !== currentScreen) {
+    _autoSaveMacroDraftOnExit();
+  }
+
   currentScreen = screenId;
   buildSidebar();
   buildMobileNav();
   renderScreen();
   window.scrollTo(0, 0);
+}
+
+// Saves the current macro form as a draft to history when navigating away
+function _autoSaveMacroDraftOnExit() {
+  try {
+    const mode = window._currentMacroMode;
+    if (!mode) return;
+    const screenId = window._currentMacroScreenId;
+    const screen = document.getElementById(screenId);
+    if (!screen) return;
+
+    // Check if there's a resident selected (for attending mode)
+    let residentId, residentName;
+    if (mode === 'resident' || mode === 'chief') {
+      residentId = currentUser?.id;
+      residentName = currentUser?.name || '';
+    } else {
+      const selector = document.getElementById('macro-resident-select');
+      if (!selector?.value) return;  // No resident selected — nothing to save
+      const r = RESIDENTS.find(x => x.id === selector.value);
+      if (!r) return;
+      residentId = r.id;
+      residentName = 'ד"ר ' + r.name;
+    }
+
+    // Check if there's any actual content (at least one textarea filled or score selected)
+    const textareas = Array.from(screen.querySelectorAll('textarea'));
+    const hasText = textareas.some(t => t.value.trim().length > 0);
+    const hasScores = screen.querySelector('[data-likert-comp][data-selected-score]') !== null;
+    if (!hasText && !hasScores) return;  // Empty form — don't save
+
+    // Capture form state for autosave system
+    if (window._captureMacroState && window._currentMacroFormId) {
+      saveDraft(window._currentMacroFormId, window._captureMacroState());
+    }
+
+    // Save to history as draft
+    const now = new Date();
+    const q = Math.floor(now.getMonth() / 3) + 1;
+    const quarterId = `${now.getFullYear()}-Q${q}`;
+    _saveToLocalHistory({
+      type: 'macro', subType: 'draft', residentId, residentName, quarterId,
+      evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
+      timestamp: Date.now(),
+    });
+    showToast('טיוטה נשמרה אוטומטית', 'info');
+  } catch (e) { console.warn('Auto-save draft on exit failed:', e); }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4557,7 +4614,7 @@ function macroFormHTML(mode) {
   const buttonText = isAttending ? 'שלח הערכה למנהלת' : 'שמור הערכה עצמית';
   html += `
     <div class="flex flex-col md:flex-row gap-2">
-      <button onclick="saveDraftMacro()" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">שמור כטיוטה</button>
+      <button onclick="saveDraftMacro('${mode}')" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">שמור כטיוטה</button>
       <button onclick="submitMacroEval('${mode}')" class="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 flex-1">${buttonText}</button>
     </div>
   `;
@@ -4571,6 +4628,10 @@ function renderMacroFormScreen(mode) {
                  : mode === 'attending' ? 'screen-attending-macro'
                  : 'screen-pd-macro';
   document.getElementById(screenId).innerHTML = macroFormHTML(mode);
+
+  // Track current mode globally so saveDraftMacro can find it
+  window._currentMacroMode = mode;
+  window._currentMacroScreenId = screenId;
 
   // ── Auto-save: protect against losing 15-20 min of careful evaluation ──
   if (mode === 'preview') return;  // PD preview screen is read-only — no autosave
@@ -4589,6 +4650,7 @@ function renderMacroFormScreen(mode) {
       })),
     };
   };
+  window._captureMacroState = captureMacroState;
   const restoreMacroState = (s) => {
     if (s.residentSelectVal) {
       const sel = document.getElementById('macro-resident-select');
@@ -4616,10 +4678,34 @@ function renderMacroFormScreen(mode) {
   showRestoreBanner(screenId, formId, restoreMacroState);
   attachAutoSave(screenId, formId, captureMacroState);
   window._currentMacroFormId = formId;
+
+  // ── Attending: when resident selection changes, reset form fields ──
+  if (mode === 'attending') {
+    const sel = document.getElementById('macro-resident-select');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        // Clear all form fields when switching resident
+        const screen = document.getElementById(screenId);
+        if (!screen) return;
+        screen.querySelectorAll('textarea').forEach(t => { t.value = ''; });
+        screen.querySelectorAll('.likert-btn.selected').forEach(b => {
+          b.classList.remove('selected');
+          b.style.background = '';
+          b.style.borderColor = '';
+          b.style.color = '';
+        });
+        screen.querySelectorAll('[data-likert-comp]').forEach(c => {
+          delete c.dataset.selectedScore;
+        });
+        // Save a fresh draft state for the new resident
+        saveDraft(formId, captureMacroState());
+      });
+    }
+  }
 }
 
-async function saveDraftMacro() {
-  await _submitMacro('draft');
+async function saveDraftMacro(mode) {
+  await _submitMacro('draft', mode || window._currentMacroMode || 'attending');
 }
 
 async function submitMacroEval(mode) {
@@ -5576,6 +5662,36 @@ function setReportLang(lang) {
   }
 }
 
+// Helper: Get English name for a resident from user settings, or return null
+function _getEnglishName(resident) {
+  if (!resident) return null;
+  // Try to get from the resident's own settings (keyed by their email)
+  const email = getResidentEmail ? getResidentEmail(resident.name) : null;
+  if (email) {
+    try {
+      const key = `${SETTINGS_STORAGE_KEY}__${email.toLowerCase()}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const s = JSON.parse(stored);
+        if (s.nameEN) return s.nameEN;
+      }
+    } catch (e) {}
+  }
+  return null;  // No English name configured
+}
+
+// Helper: Translate Hebrew period labels to English
+function _translatePeriodEN(periodLabel) {
+  if (!periodLabel) return periodLabel;
+  return periodLabel
+    .replace('ינואר', 'January').replace('פברואר', 'February').replace('מרץ', 'March')
+    .replace('אפריל', 'April').replace('מאי', 'May').replace('יוני', 'June')
+    .replace('יולי', 'July').replace('אוגוסט', 'August').replace('ספטמבר', 'September')
+    .replace('אוקטובר', 'October').replace('נובמבר', 'November').replace('דצמבר', 'December')
+    .replace('מתחילת השנה', 'Year to Date')
+    .replace('כל ההיסטוריה', 'All History');
+}
+
 function generateReport(id, title) {
   const fmt = selectedFormat;
   const lang = selectedReportLang;
@@ -5612,17 +5728,29 @@ function generateReport(id, title) {
       ? buildProceduresLogEN(subject)
       : buildProceduresLogHE(subject);
     filename = `${lang === 'en' ? 'Procedures_Log' : 'יומן_פעולות'}_${subject.name.replace(/\s/g, '_')}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'r-self-mentor') {
+    // Self vs Mentor comparison
+    const subject = residentObj || CURRENT_RESIDENT;
+    if (!subject) { showToast('יש לבחור מתמחה', 'error'); return; }
+    html = buildSelfVsMentorReport(subject, periodLabel, lang);
+    filename = `${lang === 'en' ? 'Self_vs_Mentor' : 'עצמי_מול_מנחים'}_${subject.name.replace(/\s/g, '_')}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'p-dept') {
+    html = buildDeptReport(periodLabel, lang);
+    filename = `${lang === 'en' ? 'Dept_Report' : 'דוח_מחלקתי'}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'p-cross') {
+    html = buildCrossSectionReport(periodLabel, lang);
+    filename = `${lang === 'en' ? 'Cross_Section' : 'חתך_רוחבי'}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'p-flags') {
+    html = buildFlagsReport(periodLabel, lang);
+    filename = `${lang === 'en' ? 'At_Risk_Residents' : 'מתמחים_בסיכון'}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'p-attendings') {
+    html = buildAttendingsReport(periodLabel, lang);
+    filename = `${lang === 'en' ? 'Attending_Analysis' : 'אנליזת_מנחים'}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
+  } else if (id === 'p-acgme') {
+    html = buildACGMEReport(periodLabel, lang);
+    filename = `${lang === 'en' ? 'ACGME_Report' : 'דוח_ACGME'}_${period}.${fmt === 'docx' ? 'doc' : 'html'}`;
   } else {
-    // Fallback: JSON download (for other report types not yet implemented)
-    const stub = { id, title, period: periodLabel, lang, generatedAt: new Date().toISOString(), note: 'Full HTML export coming soon for this report type.' };
-    const blob = new Blob([JSON.stringify(stub, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title}_${period}.json`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`טופס ${title} הורד כ-JSON. דוח HTML מלא יתווסף בגרסה הבאה.`, 'info');
+    showToast(`דוח "${title}" עדיין לא זמין בגרסה זו.`, 'info');
     return;
   }
 
@@ -5785,22 +5913,25 @@ function buildResidentPortfolioEN(resident, periodLabel, isPdView) {
     sbp: { short: 'Systems-Based Practice', label: 'Aware of and responsive to the larger context of healthcare' },
   };
 
-  return `<!DOCTYPE html><html dir="ltr" lang="en"><head><meta charset="UTF-8"><title>Residency Portfolio — ${resident.name}</title>
+  // Use English name from settings if available, otherwise fall back to Hebrew name
+  const resNameEN = _getEnglishName(resident) || resident.name + ', MD';
+
+  return `<!DOCTYPE html><html dir="ltr" lang="en"><head><meta charset="UTF-8"><title>Residency Portfolio — ${resNameEN}</title>
 ${reportStylesEN()}
 </head><body>
 <div class="report">
   <header>
     <h1>Residency Portfolio</h1>
-    <h2 class="subtitle">${resident.name}, MD</h2>
+    <h2 class="subtitle">${resNameEN}</h2>
     <div class="meta">
       <p><strong>Department:</strong> Obstetrics & Gynecology · Rambam Medical Center, Haifa, Israel</p>
-      <p><strong>Training Year:</strong> PGY ${resident.pgy} · <strong>Period:</strong> ${periodLabel}</p>
+      <p><strong>Training Year:</strong> PGY ${resident.pgy} · <strong>Period:</strong> ${_translatePeriodEN(periodLabel)}</p>
       <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
     </div>
   </header>
 
   <section><h2>Executive Summary</h2>
-    <p>This portfolio summarizes the training progress of ${resident.name}, MD, currently in PGY-${resident.pgy} of the Obstetrics & Gynecology residency at Rambam Medical Center. The program follows the ACGME 2.0 Milestones framework with continuous Competency-Based Medical Education (CBME) assessment.</p>
+    <p>This portfolio summarizes the training progress of ${resNameEN}, currently in PGY-${resident.pgy} of the Obstetrics & Gynecology residency at Rambam Medical Center. The program follows the ACGME 2.0 Milestones framework with continuous Competency-Based Medical Education (CBME) assessment.</p>
     <table class="summary-tbl">
       <tr><th>Average EPA Score (Micro-Evaluations)</th><td>${microAvg ?? 'N/A'} / 5.0</td></tr>
       <tr><th>Micro-Evaluations Received</th><td>${microEvals.length} from ${new Set(microEvals.map(e=>e.evaluatorEmail)).size} senior attendings</td></tr>
@@ -5889,7 +6020,7 @@ ${reportStylesEN()}
   </section>
 
   <footer style="margin-top:40px;border-top:1px solid #ccc;padding-top:10px;color:#888;font-size:0.85em">
-    <p>This document was generated by the Rambam OB/GYN CBME System (v2.6.2). Source data: assessment records from ${resident.name}'s training portfolio. Not for redistribution.</p>
+    <p>This document was generated by the Rambam OB/GYN CBME System (v2.8.1). Source data: assessment records from ${resNameEN}'s training portfolio. Not for redistribution.</p>
   </footer>
 </div></body></html>`;
 }
@@ -5949,12 +6080,13 @@ function buildProceduresLogEN(resident) {
     'לידות מכשירניות ואקום': 'Vacuum Delivery', 'לפרוסקופיות': 'Laparoscopy',
     'ניתוחים וגינליים': 'Vaginal Surgery', 'ניתוחים נוספים בגישה ביטנית': 'Other Abdominal Surgery',
   };
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Procedures Log — ${resident.name}</title>
+  const resNameEN = _getEnglishName(resident) || resident.name + ', MD';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Procedures Log — ${resNameEN}</title>
 ${reportStylesEN()}
 </head><body>
 <div class="report">
   <header>
-    <h1>Procedures Log — ${resident.name}, MD</h1>
+    <h1>Procedures Log — ${resNameEN}</h1>
     <div class="meta"><p>PGY ${resident.pgy} · Generated: ${new Date().toLocaleDateString('en-US')}</p></div>
   </header>
   <section><h2>Procedures by Category</h2>
@@ -6033,9 +6165,258 @@ function reportStylesEN() {
   </style>`;
 }
 
-function previewReport(id, title) {
-  showToast(`תצוגה מקדימה תיפתח בכרטיסייה חדשה...`, 'info');
-  generateReport(id, title);  // For now: download = preview-able
+// ─── SELF VS MENTOR REPORT ─────────────────────────────────────────
+function buildSelfVsMentorReport(resident, periodLabel, lang) {
+  const isEN = lang === 'en';
+  const resNameEN = isEN ? (_getEnglishName(resident) || resident.name + ', MD') : resident.name;
+  const evals = getSeedEvalsForResident(resident.name);
+  const macros = evals.filter(e => e.type === 'macro');
+  const agg = aggregateMacroEvalsForResident(resident.name, '2026-Q1');
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+
+  let compRows = '';
+  ACGME_COMPETENCIES.forEach(c => {
+    const s = agg?.scores?.[c.key];
+    if (!s) return;
+    const barSelf = Math.round((s.self || 0) / 5 * 100);
+    const barAvg = Math.round((s.avg || 0) / 5 * 100);
+    compRows += `<tr>
+      <td><strong>${isEN ? c.label : c.short}</strong></td>
+      <td>${s.avg?.toFixed(2) ?? '—'}</td>
+      <td>${s.self?.toFixed(2) ?? '—'}</td>
+      <td style="color:${s.gap > 0.5 ? '#dc2626' : s.gap < -0.5 ? '#2563eb' : '#059669'}">${s.gap !== null ? (s.gap >= 0 ? '+' : '') + s.gap.toFixed(2) : '—'}</td>
+    </tr>`;
+  });
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'Self vs Mentor Assessment' : 'השוואת הערכה עצמית מול מנחים'} — ${resNameEN}</title>
+${styles}
+</head><body><div class="report">
+  <header>
+    <h1>${isEN ? 'Self-Assessment vs. Mentor Evaluation' : 'השוואה: הערכה עצמית מול מנחים'}</h1>
+    <div class="meta"><span>${resNameEN}</span><span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span>
+    <span>${isEN ? 'Generated' : 'הופק'}: ${new Date().toLocaleDateString(isEN ? 'en-US' : 'he-IL')}</span></div>
+  </header>
+  <section><h2>${isEN ? 'Competency Gap Analysis' : 'ניתוח פערים לפי קומפטנציה'}</h2>
+    ${!agg ? `<p class="empty">${isEN ? 'No macro evaluations found.' : 'אין הערכות תקופתיות.'}</p>` : `
+    <p>${isEN ? 'Positive gap = self-assessment higher than mentors (overconfidence). Negative = lower (underconfidence).' : 'פער חיובי = הערכה עצמית גבוהה מהמנחים (ביטחון יתר). פער שלילי = נמוכה מהמנחים.'}</p>
+    <table>
+      <thead><tr><th>${isEN ? 'Competency' : 'קומפטנציה'}</th><th>${isEN ? 'Mentor Avg' : 'ממוצע מנחים'}</th><th>${isEN ? 'Self' : 'עצמית'}</th><th>${isEN ? 'Gap' : 'פער'}</th></tr></thead>
+      <tbody>${compRows}</tbody>
+    </table>
+    <p><strong>${isEN ? 'Overall' : 'כולל'}:</strong> ${agg.overallScore?.toFixed(2) || '—'} / 5</p>`}
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, מחלקת נשים-יולדות, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
+}
+
+// ─── DEPARTMENT REPORT ─────────────────────────────────────────────
+function buildDeptReport(periodLabel, lang) {
+  const isEN = lang === 'en';
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+  const history = _getLocalHistory().concat(DEMO_SEED_EVALUATIONS || []);
+  const microEvals = history.filter(h => h.type === 'micro' && h.subType !== 'draft');
+  const macroEvals = history.filter(h => h.type === 'macro' && h.subType !== 'draft');
+  const totalEvals = microEvals.length + macroEvals.length;
+
+  // Per-resident stats
+  let resRows = '';
+  RESIDENTS.filter(r => r.pgy >= PILOT_PGY_RANGE[0] && r.pgy <= PILOT_PGY_RANGE[1]).forEach(r => {
+    const rEvals = microEvals.filter(e => e.residentName?.includes(r.name));
+    const avg = rEvals.length > 0 ? (rEvals.reduce((s,e) => s + (e.categoryScore || 0), 0) / rEvals.length).toFixed(2) : '—';
+    resRows += `<tr><td>${r.name}</td><td>PGY ${r.pgy}</td><td>${rEvals.length}</td><td>${avg}</td></tr>`;
+  });
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'Department Report' : 'דוח מחלקתי'}</title>${styles}
+</head><body><div class="report">
+  <header>
+    <h1>${isEN ? 'Department Periodic Report' : 'דוח מחלקתי תקופתי'}</h1>
+    <div class="meta"><span>${isEN ? 'OB/GYN, Rambam Medical Center' : 'מחלקת נשים-יולדות, רמב"ם'}</span>
+    <span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span></div>
+  </header>
+  <section><h2>${isEN ? 'Summary KPIs' : 'מדדים מרכזיים'}</h2>
+    <table class="summary-tbl">
+      <tr><th>${isEN ? 'Total Evaluations' : 'סה"כ הערכות'}</th><td>${totalEvals}</td></tr>
+      <tr><th>${isEN ? 'Micro Evaluations' : 'הערכות מיידיות'}</th><td>${microEvals.length}</td></tr>
+      <tr><th>${isEN ? 'Macro Evaluations' : 'הערכות תקופתיות'}</th><td>${macroEvals.length}</td></tr>
+      <tr><th>${isEN ? 'Active Residents' : 'מתמחים פעילים'}</th><td>${RESIDENTS.filter(r => r.pgy >= PILOT_PGY_RANGE[0] && r.pgy <= PILOT_PGY_RANGE[1]).length}</td></tr>
+    </table>
+  </section>
+  <section><h2>${isEN ? 'Residents Overview' : 'סקירת מתמחים'}</h2>
+    <table>
+      <thead><tr><th>${isEN ? 'Name' : 'שם'}</th><th>${isEN ? 'Year' : 'שנה'}</th><th>${isEN ? 'Evals' : 'הערכות'}</th><th>${isEN ? 'EPA Avg' : 'ממוצע EPA'}</th></tr></thead>
+      <tbody>${resRows || `<tr><td colspan="4" class="empty">${isEN ? 'No data' : 'אין נתונים'}</td></tr>`}</tbody>
+    </table>
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
+}
+
+// ─── CROSS-SECTION REPORT ──────────────────────────────────────────
+function buildCrossSectionReport(periodLabel, lang) {
+  const isEN = lang === 'en';
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+  const history = _getLocalHistory().concat(DEMO_SEED_EVALUATIONS || []);
+  const microEvals = history.filter(h => h.type === 'micro' && h.subType !== 'draft');
+
+  // Group by category
+  const cats = {};
+  microEvals.forEach(e => {
+    const cat = e.categoryLabel || e.category || 'לא מזוהה';
+    if (!cats[cat]) cats[cat] = { count: 0, totalScore: 0, lowScores: 0 };
+    cats[cat].count++;
+    cats[cat].totalScore += e.categoryScore || 0;
+    if ((e.categoryScore || 0) < 3) cats[cat].lowScores++;
+  });
+
+  let catRows = '';
+  Object.entries(cats).sort((a,b) => a[1].lowScores - b[1].lowScores).reverse().forEach(([cat, data]) => {
+    const avg = (data.totalScore / data.count).toFixed(2);
+    catRows += `<tr><td>${cat}</td><td>${data.count}</td><td>${avg}</td><td style="color:${data.lowScores > 0 ? '#dc2626' : '#059669'}">${data.lowScores}</td></tr>`;
+  });
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'Cross-Section Analysis' : 'חתך רוחבי בעיות'}</title>${styles}
+</head><body><div class="report">
+  <header><h1>${isEN ? 'Cross-Section: Recurring Patterns' : 'חתך רוחבי — דפוסים חוזרים'}</h1>
+  <div class="meta"><span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span></div></header>
+  <section><h2>${isEN ? 'Evaluations by Category' : 'הערכות לפי קטגוריה'}</h2>
+    <table>
+      <thead><tr><th>${isEN ? 'Category' : 'קטגוריה'}</th><th>${isEN ? 'Count' : 'כמות'}</th><th>${isEN ? 'Avg EPA' : 'ממוצע'}</th><th>${isEN ? 'Low Scores (<3)' : 'ציונים נמוכים (<3)'}</th></tr></thead>
+      <tbody>${catRows || `<tr><td colspan="4" class="empty">${isEN ? 'No data' : 'אין נתונים'}</td></tr>`}</tbody>
+    </table>
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
+}
+
+// ─── AT-RISK RESIDENTS REPORT ──────────────────────────────────────
+function buildFlagsReport(periodLabel, lang) {
+  const isEN = lang === 'en';
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+  const history = _getLocalHistory().concat(DEMO_SEED_EVALUATIONS || []);
+  const microEvals = history.filter(h => h.type === 'micro' && h.subType !== 'draft');
+
+  let flagRows = '';
+  RESIDENTS.filter(r => r.pgy >= PILOT_PGY_RANGE[0] && r.pgy <= PILOT_PGY_RANGE[1]).forEach(r => {
+    const rEvals = microEvals.filter(e => e.residentName?.includes(r.name));
+    if (rEvals.length === 0) return;
+    const avg = rEvals.reduce((s,e) => s + (e.categoryScore || 0), 0) / rEvals.length;
+    const lowCount = rEvals.filter(e => (e.categoryScore || 0) < 3).length;
+    if (avg < 3.0 || lowCount >= 2) {
+      const status = avg < 2.5 ? (isEN ? 'Critical' : 'קריטי') : avg < 3.0 ? (isEN ? 'At Risk' : 'בסיכון') : (isEN ? 'Monitor' : 'מעקב');
+      const color = avg < 2.5 ? '#dc2626' : avg < 3.0 ? '#d97706' : '#6b7280';
+      flagRows += `<tr>
+        <td>${r.name}</td><td>PGY ${r.pgy}</td>
+        <td>${avg.toFixed(2)}</td><td>${lowCount}</td>
+        <td style="color:${color};font-weight:600">${status}</td>
+      </tr>`;
+    }
+  });
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'At-Risk Residents' : 'מתמחים בסיכון'}</title>${styles}
+</head><body><div class="report">
+  <header><h1>${isEN ? 'At-Risk Residents Report' : 'דוח מתמחים בסיכון'}</h1>
+  <div class="meta"><span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span>
+  <span>${isEN ? 'Confidential — PD eyes only' : 'חסוי — למנהל/ת תוכנית בלבד'}</span></div></header>
+  <section><h2>${isEN ? 'Flagged Residents' : 'מתמחים מסומנים'}</h2>
+    <p>${isEN ? 'Residents with average EPA < 3.0 or 2+ low scores.' : 'מתמחים עם ממוצע EPA מתחת ל-3.0 או 2+ ציונים נמוכים.'}</p>
+    ${!flagRows ? `<p class="empty">${isEN ? 'No at-risk residents identified.' : 'לא זוהו מתמחים בסיכון.'}</p>` : `
+    <table>
+      <thead><tr><th>${isEN ? 'Name' : 'שם'}</th><th>${isEN ? 'Year' : 'שנה'}</th><th>${isEN ? 'Avg EPA' : 'ממוצע'}</th><th>${isEN ? 'Low Scores' : 'ציונים נמוכים'}</th><th>${isEN ? 'Status' : 'סטטוס'}</th></tr></thead>
+      <tbody>${flagRows}</tbody>
+    </table>`}
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
+}
+
+// ─── ATTENDING ANALYSIS REPORT ─────────────────────────────────────
+function buildAttendingsReport(periodLabel, lang) {
+  const isEN = lang === 'en';
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+  const history = _getLocalHistory().concat(DEMO_SEED_EVALUATIONS || []);
+  const microEvals = history.filter(h => h.type === 'micro' && h.subType !== 'draft');
+
+  // Group by evaluator
+  const evaluators = {};
+  microEvals.forEach(e => {
+    const name = e.evaluatorName || 'לא ידוע';
+    if (!evaluators[name]) evaluators[name] = { count: 0, totalScore: 0, scores: [] };
+    evaluators[name].count++;
+    evaluators[name].totalScore += e.categoryScore || 0;
+    evaluators[name].scores.push(e.categoryScore || 0);
+  });
+
+  let evalRows = '';
+  Object.entries(evaluators).sort((a,b) => b[1].count - a[1].count).forEach(([name, data]) => {
+    const avg = (data.totalScore / data.count).toFixed(2);
+    const sd = data.scores.length > 1 ? Math.sqrt(data.scores.reduce((s,v) => s + Math.pow(v - data.totalScore/data.count, 2), 0) / data.scores.length).toFixed(2) : '—';
+    evalRows += `<tr><td>${name}</td><td>${data.count}</td><td>${avg}</td><td>${sd}</td></tr>`;
+  });
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'Attending Analysis' : 'אנליזת מנחים'}</title>${styles}
+</head><body><div class="report">
+  <header><h1>${isEN ? 'Senior Attending Evaluation Analysis' : 'אנליזת הערכות סגל בכיר'}</h1>
+  <div class="meta"><span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span></div></header>
+  <section><h2>${isEN ? 'Evaluator Activity & Scoring' : 'פעילות מעריכים וציונים'}</h2>
+    <table>
+      <thead><tr><th>${isEN ? 'Evaluator' : 'מעריך'}</th><th>${isEN ? 'Evals Given' : 'הערכות'}</th><th>${isEN ? 'Avg Score' : 'ציון ממוצע'}</th><th>${isEN ? 'Std Dev' : 'סטיית תקן'}</th></tr></thead>
+      <tbody>${evalRows || `<tr><td colspan="4" class="empty">${isEN ? 'No data' : 'אין נתונים'}</td></tr>`}</tbody>
+    </table>
+    <p>${isEN ? 'High standard deviation indicates inconsistent scoring patterns.' : 'סטיית תקן גבוהה מעידה על דפוסי ציון לא עקביים.'}</p>
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
+}
+
+// ─── ACGME REPORT ──────────────────────────────────────────────────
+function buildACGMEReport(periodLabel, lang) {
+  const isEN = lang === 'en';
+  const styles = isEN ? reportStylesEN() : reportStyles();
+  const dir = isEN ? 'ltr' : 'rtl';
+
+  const compEN = {
+    pc: 'Patient Care', mk: 'Medical Knowledge', prof: 'Professionalism',
+    ics: 'Interpersonal & Communication Skills', pbli: 'Practice-Based Learning & Improvement', sbp: 'Systems-Based Practice',
+  };
+
+  let compRows = '';
+  RESIDENTS.filter(r => r.pgy >= PILOT_PGY_RANGE[0] && r.pgy <= PILOT_PGY_RANGE[1]).forEach(r => {
+    const agg = aggregateMacroEvalsForResident(r.name, '2026-Q1');
+    const resNameEN = isEN ? (_getEnglishName(r) || r.name) : r.name;
+    let scores = ACGME_COMPETENCIES.map(c => {
+      const s = agg?.scores?.[c.key];
+      return s?.avg?.toFixed(1) ?? '—';
+    }).join('</td><td>');
+    compRows += `<tr><td>${resNameEN}</td><td>PGY ${r.pgy}</td><td>${scores}</td><td>${agg?.overallScore?.toFixed(2) ?? '—'}</td></tr>`;
+  });
+
+  const compHeaders = ACGME_COMPETENCIES.map(c => `<th>${isEN ? (compEN[c.key] || c.short) : c.short}</th>`).join('');
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${isEN ? 'en' : 'he'}"><head><meta charset="UTF-8">
+<title>${isEN ? 'ACGME Milestones Report' : 'דוח ACGME'}</title>${styles}
+<style>.report table { font-size: 0.85em; } .report th { font-size: 0.8em; }</style>
+</head><body><div class="report">
+  <header><h1>${isEN ? 'ACGME Milestones Compliance Report' : 'דוח עמידה ב-Milestones ACGME'}</h1>
+  <div class="meta"><span>${isEN ? 'OB/GYN Residency, Rambam Medical Center' : 'מחלקת נשים-יולדות, רמב"ם'}</span>
+  <span>${isEN ? 'Period' : 'תקופה'}: ${isEN ? _translatePeriodEN(periodLabel) : periodLabel}</span></div></header>
+  <section><h2>${isEN ? 'Milestones Matrix — All Residents' : 'מטריצת Milestones — כל המתמחים'}</h2>
+    <table>
+      <thead><tr><th>${isEN ? 'Resident' : 'מתמחה'}</th><th>${isEN ? 'Year' : 'שנה'}</th>${compHeaders}<th>${isEN ? 'Overall' : 'כולל'}</th></tr></thead>
+      <tbody>${compRows || `<tr><td colspan="${ACGME_COMPETENCIES.length + 3}" class="empty">${isEN ? 'No data' : 'אין נתונים'}</td></tr>`}</tbody>
+    </table>
+  </section>
+  <footer><p>${isEN ? 'Generated by Rambam OB/GYN CBME System v2.8.1' : 'הופק ממערכת CBME, רמב"ם'} · ${new Date().toLocaleString(isEN ? 'en-US' : 'he-IL')}</p></footer>
+</div></body></html>`;
 }
 
 function previewReport(id, title) {
@@ -6566,6 +6947,34 @@ function renderSettings() {
       <p class="text-xs text-gray-400 leading-relaxed">
         ערכת הנושא הכהה בשלב alpha. רוב המסכים מותאמים, אך ייתכן שתגלה/י פינות שטרם הותאמו. נשמח לפידבק.
       </p>
+    </section>
+
+    <!-- 2b. English name for reports -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">🌐</span>
+        <h2 class="text-base font-semibold">שם באנגלית (לדוחות)</h2>
+      </div>
+      <p class="text-xs text-gray-500 leading-relaxed mb-4">
+        השם באנגלית יופיע בדוחות כשמפיקים בשפה האנגלית (למשל עבור fellowship / ACGME).
+        אם לא ימולא, המערכת תשתמש בשם העברי.
+      </p>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-medium text-gray-700 mb-1 block">Full Name in English</label>
+          <input type="text" id="settings-nameEN" value="${USER_SETTINGS.nameEN || ''}"
+                 placeholder="e.g. Ran Dugman, MD"
+                 class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 style="direction:ltr" oninput="saveUserSettings({ nameEN: this.value })">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-700 mb-1 block">Title / Position</label>
+          <input type="text" id="settings-titleEN" value="${USER_SETTINGS.titleEN || ''}"
+                 placeholder="e.g. PGY-2, OB/GYN Residency"
+                 class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 style="direction:ltr" oninput="saveUserSettings({ titleEN: this.value })">
+        </div>
+      </div>
     </section>
 
     <!-- 3. Charts (only for residents — affects their personal dashboard) -->
