@@ -627,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.2';
+const APP_VERSION = '2.9.3';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Fix: residentName ד"ר prefix mismatch — PD macro screen now finds evaluations regardless of prefix.';
+const APP_VERSION_NOTES = 'Fix: (1) Settings save button + PD English name dynamic in reports. (2) Macro form auto-selects resident from PD context — eliminates false "choose resident" error.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2520,6 +2520,30 @@ function saveUserSettings(updates) {
   }
 }
 
+// Flash the settings-saved toast (debounced for oninput)
+let _settingsToastTimer = null;
+function _flashSettingsToast() {
+  const toast = document.getElementById('settings-saved-toast');
+  if (!toast) return;
+  if (_settingsToastTimer) clearTimeout(_settingsToastTimer);
+  toast.style.opacity = '1';
+  _settingsToastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 1500);
+}
+
+// Explicit save button handler — shows toast confirmation
+function saveSettingsExplicit() {
+  // Re-read current field values and save
+  const nameEN = document.getElementById('settings-nameEN')?.value || '';
+  const titleEN = document.getElementById('settings-titleEN')?.value || '';
+  saveUserSettings({ nameEN, titleEN });
+  // Show saved toast
+  const toast = document.getElementById('settings-saved-toast');
+  if (toast) {
+    toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+  }
+}
+
 /**
  * Pushes settings to Drive via Apps Script. Used so the backend can honor
  * the resident's notification preferences when other users submit evals.
@@ -2579,11 +2603,17 @@ function _autoSaveMacroDraftOnExit() {
       residentName = currentUser?.name || '';
     } else {
       const selector = document.getElementById('macro-resident-select');
-      if (!selector?.value) return;  // No resident selected — nothing to save
-      const r = RESIDENTS.find(x => x.id === selector.value);
-      if (!r) return;
-      residentId = r.id;
-      residentName = 'ד"ר ' + r.name;
+      if (selector?.value) {
+        const r = RESIDENTS.find(x => x.id === selector.value);
+        if (!r) return;
+        residentId = r.id;
+        residentName = 'ד"ר ' + r.name;
+      } else if (window._currentMacroResidentId) {
+        residentId = window._currentMacroResidentId;
+        residentName = window._currentMacroResidentName || '';
+      } else {
+        return;  // No resident selected — nothing to save
+      }
     }
 
     // Check if there's any actual content (at least one textarea filled or score selected)
@@ -5044,6 +5074,20 @@ function renderMacroFormScreen(mode) {
   attachAutoSave(screenId, formId, captureMacroState);
   window._currentMacroFormId = formId;
 
+  // ── Attending/PD: pre-select resident if known from PD macro screen ──
+  if (mode === 'attending') {
+    const sel = document.getElementById('macro-resident-select');
+    if (sel && !sel.value && CURRENT_MACRO_RESIDENT_NAME) {
+      // Try to find resident by name (strip ד"ר prefix for matching)
+      const stripDr = (n) => (n || '').replace(/^ד"ר\s+/, '').trim();
+      const targetName = stripDr(CURRENT_MACRO_RESIDENT_NAME);
+      const match = RESIDENTS.find(r => stripDr(r.name) === targetName);
+      if (match) {
+        sel.value = match.id;
+      }
+    }
+  }
+
   // ── Attending: when resident selection changes, reset form fields ──
   if (mode === 'attending') {
     const sel = document.getElementById('macro-resident-select');
@@ -5088,12 +5132,16 @@ async function _submitMacro(subType, mode) {
     residentId = currentUser?.id;
     residentName = currentUser?.name || 'unknown';
   } else {
-    // Attending evaluating a resident — find from form selector
+    // Attending/PD evaluating a resident — find from form selector
     const selector = document.getElementById('macro-resident-select');
     if (selector?.value) {
       const r = RESIDENTS.find(x => x.id === selector.value);
       residentId = r?.id;
       residentName = r ? 'ד"ר ' + r.name : 'unknown';
+    } else if (window._currentMacroResidentId) {
+      // Fallback: use resident from PD macro screen context
+      residentId = window._currentMacroResidentId;
+      residentName = window._currentMacroResidentName || 'unknown';
     } else {
       // No resident selected — block save (including drafts)
       showToast('יש לבחור מתמחה לפני שמירה', 'error');
@@ -6155,6 +6203,34 @@ function _getEnglishName(resident) {
   return null;  // No English name configured
 }
 
+// Helper: Get PD English name from PD's own settings
+function _getPdEnglishName() {
+  // Try the current logged-in PD's settings first
+  if (currentUserEmail && currentUser?.role === 'pd') {
+    try {
+      const key = `${SETTINGS_STORAGE_KEY}__${currentUserEmail.toLowerCase()}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const s = JSON.parse(stored);
+        if (s.nameEN) return s.nameEN;
+      }
+    } catch (e) {}
+  }
+  // Fallback: try all known PD emails
+  const pdEmails = (STAFF.pd || []).map(p => p.email).filter(Boolean);
+  for (const email of pdEmails) {
+    try {
+      const key = `${SETTINGS_STORAGE_KEY}__${email.toLowerCase()}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const s = JSON.parse(stored);
+        if (s.nameEN) return s.nameEN;
+      }
+    } catch (e) {}
+  }
+  return 'Roi Iluz, MD'; // Ultimate fallback
+}
+
 // Helper: Translate Hebrew period labels to English
 function _translatePeriodEN(periodLabel) {
   if (!periodLabel) return periodLabel;
@@ -6487,7 +6563,7 @@ ${reportStylesEN()}
   <section><h2>Verification</h2>
     <p>This portfolio was generated automatically from the OB/GYN Department's CBME assessment system at Rambam Medical Center on ${new Date().toLocaleString('en-US')}. For verification, please contact the Program Director:</p>
     <p style="padding:10px;border:1px solid #ccc;background:#f5f5f5;display:inline-block">
-      Roi Iluz, MD<br>
+      ${_getPdEnglishName()}<br>
       Program Director, OB/GYN Residency<br>
       Rambam Medical Center, Haifa, Israel<br>
       Email: r_iluz@rambam.health.gov.il
@@ -7440,14 +7516,14 @@ function renderSettings() {
           <input type="text" id="settings-nameEN" value="${USER_SETTINGS.nameEN || ''}"
                  placeholder="e.g. Ran Dugman, MD"
                  class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                 style="direction:ltr" oninput="saveUserSettings({ nameEN: this.value })">
+                 style="direction:ltr" oninput="saveUserSettings({ nameEN: this.value }); _flashSettingsToast()">
         </div>
         <div>
           <label class="text-xs font-medium text-gray-700 mb-1 block">Title / Position</label>
           <input type="text" id="settings-titleEN" value="${USER_SETTINGS.titleEN || ''}"
                  placeholder="e.g. PGY-2, OB/GYN Residency"
                  class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                 style="direction:ltr" oninput="saveUserSettings({ titleEN: this.value })">
+                 style="direction:ltr" oninput="saveUserSettings({ titleEN: this.value }); _flashSettingsToast()">
         </div>
       </div>
     </section>
@@ -7539,9 +7615,18 @@ function renderSettings() {
       </button>
     </section>
 
-    <!-- 6. Reset to defaults -->
+    <!-- 6. Explicit Save Button -->
+    <section class="bg-white rounded-xl border border-blue-200 p-5 mb-4 text-center">
+      <button onclick="saveSettingsExplicit()"
+              class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors">
+        💾 שמור הגדרות
+      </button>
+      <p class="text-xs text-gray-500 mt-2">ההגדרות נשמרות אוטומטית, אך ניתן ללחוץ כאן לאישור</p>
+    </section>
+
+    <!-- 7. Reset to defaults -->
     <section class="bg-gray-50 rounded-xl p-4 mb-6 text-center">
-      <button onclick="resetSettingsToDefaults()" 
+      <button onclick="resetSettingsToDefaults()"
               class="text-xs text-gray-500 hover:text-gray-700 underline">
         איפוס כל ההגדרות לברירת המחדל
       </button>
