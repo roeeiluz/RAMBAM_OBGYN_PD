@@ -627,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.1';
+const APP_VERSION = '2.9.2';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Fix: seed restore preserves macro competencies + evaluatorRole. PD macro defaults to current quarter.';
+const APP_VERSION_NOTES = 'Fix: residentName ד"ר prefix mismatch — PD macro screen now finds evaluations regardless of prefix.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1921,9 +1921,11 @@ const DEMO_USERS_WHITELIST = new Set([
 
 function isDemoResident(residentName) {
   if (!residentName) return false;
-  if (DEMO_USERS_WHITELIST.has(residentName)) return true;
+  // Strip "ד"ר " prefix for matching (evals may be saved with prefix)
+  const stripped = residentName.replace(/^ד"ר\s+/, '').trim();
+  if (DEMO_USERS_WHITELIST.has(residentName) || DEMO_USERS_WHITELIST.has(stripped)) return true;
   // Cross-check against RESIDENTS_RAW (defense-in-depth)
-  const raw = RESIDENTS_RAW.find(r => r.name === residentName);
+  const raw = RESIDENTS_RAW.find(r => r.name === residentName || r.name === stripped);
   return !!(raw && raw.isDemo === true);
 }
 
@@ -5292,10 +5294,15 @@ async function approveMacro() {
 function aggregateMacroEvalsForResident(residentName, quarterId) {
   // Filter all macro evaluations for this resident + quarter
   // Merges DEMO_SEED_EVALUATIONS + localStorage history
+  // Helper: strip "ד"ר " prefix for name matching (submitMacro saves with prefix,
+  // but RESIDENTS array stores without)
+  const stripDr = (n) => (n || '').replace(/^ד"ר\s+/, '').trim();
+  const nameMatch = (savedName) => stripDr(savedName) === stripDr(residentName);
+
   const seedMacros = isDemoResident(residentName)
     ? DEMO_SEED_EVALUATIONS.filter(e =>
         e.type === 'macro' &&
-        e.residentName === residentName &&
+        nameMatch(e.residentName) &&
         e.quarterId === quarterId
       )
     : [];
@@ -5305,7 +5312,7 @@ function aggregateMacroEvalsForResident(residentName, quarterId) {
   try {
     localMacros = _getLocalHistory().filter(e =>
       e.type === 'macro' &&
-      e.residentName === residentName &&
+      nameMatch(e.residentName) &&
       e.quarterId === quarterId &&
       e.subType !== 'draft'
     );
@@ -5465,16 +5472,19 @@ let CURRENT_MACRO_QUARTER_ID = null;
 function listResidentsWithMacroEvalsForQuarter(quarterId) {
   // Build map of resident → submission count for this quarter
   // Merges DEMO_SEED_EVALUATIONS + localStorage history
+  // Normalize names: strip "ד"ר " prefix so saved data matches RESIDENTS array
+  const stripDr = (n) => (n || '').replace(/^ד"ר\s+/, '').trim();
   const counts = new Map();
 
   // Source 1: seed data
   DEMO_SEED_EVALUATIONS.forEach(e => {
     if (!isDemoResident(e.residentName)) return;
     if (e.type === 'macro' && e.quarterId === quarterId) {
-      const c = counts.get(e.residentName) || { senior: 0, hasSelf: false };
+      const key = stripDr(e.residentName);
+      const c = counts.get(key) || { senior: 0, hasSelf: false };
       if (e.evaluatorRole === 'resident') c.hasSelf = true;
       else c.senior++;
-      counts.set(e.residentName, c);
+      counts.set(key, c);
     }
   });
 
@@ -5484,11 +5494,14 @@ function listResidentsWithMacroEvalsForQuarter(quarterId) {
     localHistory.forEach(e => {
       if (e.type === 'macro' && e.quarterId === quarterId && e.subType !== 'draft') {
         const rName = e.residentName;
-        if (!rName || !isDemoResident(rName)) return;
-        const c = counts.get(rName) || { senior: 0, hasSelf: false };
+        if (!rName) return;
+        const key = stripDr(rName);
+        // Check if this is a known resident (by stripped name)
+        if (!RESIDENTS.some(r => r.name === key) && !isDemoResident(rName)) return;
+        const c = counts.get(key) || { senior: 0, hasSelf: false };
         if (e.evaluatorRole === 'resident' || e.selfAssessment) c.hasSelf = true;
         else c.senior++;
-        counts.set(rName, c);
+        counts.set(key, c);
       }
     });
   } catch (ex) { /* ignore localStorage errors */ }
