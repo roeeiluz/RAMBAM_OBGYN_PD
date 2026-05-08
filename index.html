@@ -627,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.0';
-const APP_VERSION_DATE = '7.5.2026';
-const APP_VERSION_NOTES = 'Unified eval status screen with filter chips. Resident portfolio. Macro flow fix: self-evals visible to PD. All residents in PD macro dropdown.';
+const APP_VERSION = '2.9.1';
+const APP_VERSION_DATE = '8.5.2026';
+const APP_VERSION_NOTES = 'Fix: seed restore preserves macro competencies + evaluatorRole. PD macro defaults to current quarter.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -5514,8 +5514,7 @@ function renderMacroPdScreen() {
   if (!CURRENT_MACRO_QUARTER_ID) {
     const now = new Date();
     const q = Math.floor(now.getMonth() / 3) + 1;
-    // Default to Q1 since DEMO_SEED has Q1 data
-    CURRENT_MACRO_QUARTER_ID = '2026-Q1';
+    CURRENT_MACRO_QUARTER_ID = `${now.getFullYear()}-Q${q}`;
   }
 
   const availableResidents = listResidentsWithMacroEvalsForQuarter(CURRENT_MACRO_QUARTER_ID);
@@ -10006,21 +10005,39 @@ if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH && localStorage.ge
     const devSeeded = hist.filter(h => h._devSeed);
     let restoredCount = 0;
     devSeeded.forEach(h => {
-      // Re-add to DEMO_SEED_EVALUATIONS in the format those functions expect
-      DEMO_SEED_EVALUATIONS.push({
-        type: h.type || 'micro',
-        timestamp: h.timestamp || h.date,
-        evaluatorEmail: h.evaluatorEmail || '',
-        evaluatorName: h.evaluatorName || '',
-        evaluatorRole: 'attending',
-        residentName: h.residentName,
-        category: h.category,
-        categoryLabel: h.categoryLabel,
-        categoryScore: h.categoryScore,
-        visibleFeedback: h.visibleFeedback || '',
-        privateNote: h.privateNote || null,
-        _devSeed: true,
-      });
+      // Re-add to DEMO_SEED_EVALUATIONS in the correct format per type
+      if (h.type === 'macro') {
+        DEMO_SEED_EVALUATIONS.push({
+          type: 'macro',
+          timestamp: h.timestamp || h.date,
+          evaluatorEmail: h.evaluatorEmail || '',
+          evaluatorName: h.evaluatorName || '',
+          evaluatorRole: h.evaluatorRole || 'attending',
+          residentName: h.residentName || '',
+          residentId: h.residentId || '',
+          quarterId: h.quarterId || '',
+          subType: h.subType || 'final',
+          competencies: h.competencies || {},
+          _devSeed: true,
+        });
+      } else {
+        DEMO_SEED_EVALUATIONS.push({
+          type: 'micro',
+          timestamp: h.timestamp || h.date,
+          evaluatorEmail: h.evaluatorEmail || '',
+          evaluatorName: h.evaluatorName || '',
+          evaluatorRole: h.evaluatorRole || 'attending',
+          residentName: h.residentName || '',
+          residentId: h.residentId || '',
+          category: h.category,
+          categoryLabel: h.categoryLabel,
+          categoryScore: h.categoryScore,
+          epaScores: h.epaScores || {},
+          visibleFeedback: h.visibleFeedback || '',
+          privateNote: h.privateNote || null,
+          _devSeed: true,
+        });
+      }
       restoredCount++;
     });
 
