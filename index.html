@@ -135,10 +135,15 @@
 </head>
 <body class="text-gray-900">
 
-<!-- ─── TOP BAR: logged-in user (hidden until login) ──────────────── -->
-<div id="top-bar" class="hidden role-banner sticky top-0 z-50 px-4 py-2 items-center gap-3 flex-wrap">
-  <div class="text-xs text-amber-900 font-medium">פיילוט CBME</div>
-  <div class="mr-auto text-xs text-amber-900">מחובר/ת: <strong id="user-email-display"></strong> · <span id="current-user-info"></span></div>
+<!-- ─── TOP BAR: logged-in user (hidden until login) ────────────────
+     v2.9.8: compact on mobile — show only short username (email prefix).
+     Desktop keeps full info (פיילוט CBME · email · name · role). -->
+<div id="top-bar" class="hidden role-banner sticky top-0 z-50 px-4 py-1.5 items-center gap-3 flex-wrap">
+  <div class="text-xs text-amber-900 font-medium hidden md:block">פיילוט CBME</div>
+  <div class="mr-auto text-xs text-amber-900 truncate">
+    <span class="md:hidden"><strong id="user-short-display"></strong></span>
+    <span class="hidden md:inline">מחובר/ת: <strong id="user-email-display"></strong> · <span id="current-user-info"></span></span>
+  </div>
   <button onclick="logout()" class="text-xs px-2.5 py-1 rounded-full bg-white text-amber-900 border border-amber-300 hover:bg-amber-50">התנתק/י</button>
 </div>
 
@@ -636,9 +641,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.7';
+const APP_VERSION = '2.9.8';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Fix: לוגו רמב"ם + chip גרסה הסתירו תפריטים במובייל — getElementById נכשל בטעינה כי הם בסוף ה-DOM. עכשיו CSS-class על body מסתיר אותם, עמיד לסדר טעינה.';
+const APP_VERSION_NOTES = 'Mobile UX: top-bar מצומצם לשם קצר (email prefix), bottom-nav קיבל כפתור "עוד" שפותח sheet עם המתודולוגיה והגדרות.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1279,6 +1284,9 @@ function showAppScreen() {
   document.getElementById('top-bar').classList.remove('hidden');
   document.getElementById('top-bar').classList.add('flex');
   document.getElementById('user-email-display').textContent = currentUserEmail;
+  // v2.9.8: short username for mobile (email prefix before @)
+  const shortEl = document.getElementById('user-short-display');
+  if (shortEl) shortEl.textContent = currentUserEmail ? currentUserEmail.split('@')[0] : '';
 
   // Hide branding & version — only shown on login screen (overlap mobile nav).
   // CSS rule (body.in-app) does the actual hiding — robust against load order
@@ -2462,14 +2470,63 @@ function buildSidebar() {
 }
 
 function buildMobileNav() {
-  // Show only first 4 items in mobile nav
-  const items = NAV_BY_ROLE[currentRole].slice(0, 4);
-  document.getElementById('mobile-nav').innerHTML = items.map(item => `
+  // v2.9.8: 4 first items + "עוד" (More) opens an upward sheet with the rest.
+  // Without this, methodology + settings were unreachable on mobile.
+  const allItems = NAV_BY_ROLE[currentRole] || [];
+  const MAX_VISIBLE = 4;
+  const showMore = allItems.length > MAX_VISIBLE;
+  const visible = showMore ? allItems.slice(0, MAX_VISIBLE) : allItems.slice(0, 5);
+  const overflow = showMore ? allItems.slice(MAX_VISIBLE) : [];
+
+  const slotHtml = visible.map(item => `
     <button onclick="navigateTo('${item.id}')" class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 ${currentScreen === item.id ? 'text-blue-600' : 'text-gray-400'}">
       <span class="text-base">${item.icon}</span>
       <span class="text-[10px]">${item.label}</span>
     </button>
   `).join('');
+
+  let moreBtnHtml = '';
+  if (showMore) {
+    const isOverflowActive = overflow.some(o => o.id === currentScreen);
+    moreBtnHtml = `
+      <button onclick="toggleMobileMore()" class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 ${isOverflowActive ? 'text-blue-600' : 'text-gray-400'}">
+        <span class="text-base">⋯</span>
+        <span class="text-[10px]">עוד</span>
+      </button>
+    `;
+  }
+  document.getElementById('mobile-nav').innerHTML = slotHtml + moreBtnHtml;
+
+  // Build/update overflow sheet
+  let sheet = document.getElementById('mobile-more-sheet');
+  if (showMore && !sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'mobile-more-sheet';
+    sheet.className = 'md:hidden fixed inset-0 z-50 hidden';
+    sheet.innerHTML = `
+      <div class="absolute inset-0 bg-black/40" onclick="closeMobileMore()"></div>
+      <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-xl py-2 max-h-[60vh] overflow-y-auto" id="mobile-more-content"></div>
+    `;
+    document.body.appendChild(sheet);
+  }
+  if (sheet) {
+    document.getElementById('mobile-more-content').innerHTML = overflow.map(item => `
+      <button onclick="closeMobileMore(); navigateTo('${item.id}')" class="w-full flex items-center gap-3 py-3 px-4 text-right hover:bg-gray-50 ${currentScreen === item.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}">
+        <span class="text-lg">${item.icon}</span>
+        <span class="text-sm">${item.label}</span>
+      </button>
+    `).join('');
+  }
+}
+
+function toggleMobileMore() {
+  const sheet = document.getElementById('mobile-more-sheet');
+  if (sheet) sheet.classList.toggle('hidden');
+}
+
+function closeMobileMore() {
+  const sheet = document.getElementById('mobile-more-sheet');
+  if (sheet) sheet.classList.add('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════════
