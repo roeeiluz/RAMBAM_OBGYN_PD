@@ -122,6 +122,15 @@
   html[data-theme="dark"] details { background-color: transparent !important; }
   html[data-theme="dark"] .hover\\:bg-gray-50:hover { background-color: #334155 !important; }
   html[data-theme="dark"] .hover\\:bg-gray-100:hover { background-color: #475569 !important; }
+
+  /* v2.9.7: Logo + version chip — only on login screen.
+     Uses body class so it's robust against the init script running
+     BEFORE the floating elements are rendered (the script is at end of
+     body but BEFORE the chip+logo HTML, so getElementById returned null
+     and the inline display:none was never applied → elements covered
+     mobile bottom nav). */
+  body.in-app #rambam-logo-link,
+  body.in-app #version-indicator { display: none !important; }
 </style>
 </head>
 <body class="text-gray-900">
@@ -627,9 +636,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.5';
+const APP_VERSION = '2.9.7';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Fix: כפתור "המשך" בטיוטות משחזר את כל נתוני הטיוטה (ציונים, הערות, מתמחה) מההיסטוריה.';
+const APP_VERSION_NOTES = 'Fix: לוגו רמב"ם + chip גרסה הסתירו תפריטים במובייל — getElementById נכשל בטעינה כי הם בסוף ה-DOM. עכשיו CSS-class על body מסתיר אותם, עמיד לסדר טעינה.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -982,11 +991,8 @@ function showLoginScreen() {
   document.getElementById('login-code').value = '';
   clearErrors();
 
-  // Restore branding & version on login screen
-  const rLogo = document.getElementById('rambam-logo-link');
-  const vInd = document.getElementById('version-indicator');
-  if (rLogo) rLogo.style.display = '';
-  if (vInd) vInd.style.display = '';
+  // Restore branding & version on login screen (remove the body class that hides them)
+  document.body.classList.remove('in-app');
 
   // DEV MODE: show role-picker instead of normal login
   if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
@@ -1274,11 +1280,11 @@ function showAppScreen() {
   document.getElementById('top-bar').classList.add('flex');
   document.getElementById('user-email-display').textContent = currentUserEmail;
 
-  // Hide branding & version — only shown on login screen (overlap mobile nav)
-  const rLogo = document.getElementById('rambam-logo-link');
-  const vInd = document.getElementById('version-indicator');
-  if (rLogo) rLogo.style.display = 'none';
-  if (vInd) vInd.style.display = 'none';
+  // Hide branding & version — only shown on login screen (overlap mobile nav).
+  // CSS rule (body.in-app) does the actual hiding — robust against load order
+  // (the floating elements are rendered AFTER this script runs, so the
+  // previous getElementById approach returned null on initial page load).
+  document.body.classList.add('in-app');
 
   // Resolve full user identity from STAFF/RESIDENTS based on email
   // CRITICAL: never fall back to 'resident' — that caused demo data leakage in v2.6.3
@@ -2644,13 +2650,26 @@ function _autoSaveMacroDraftOnExit() {
       saveDraft(window._currentMacroFormId, window._captureMacroState());
     }
 
+    // ── Gather scores+comments so "המשך" can restore them later (v2.9.6) ──
+    // Without these the previous full draft would be REPLACED by a stripped
+    // version on exit (see _saveToLocalHistory replace-by-resident+quarter logic).
+    const rawScores = {};
+    screen.querySelectorAll('[data-likert-comp]').forEach(c => {
+      if (c.dataset.likertComp && c.dataset.selectedScore) {
+        rawScores[c.dataset.likertComp] = Number(c.dataset.selectedScore);
+      }
+    });
+    const allComments = textareas.map((t, i) => ({ idx: i, value: t.value })).filter(c => c.value);
+
     // Save to history as draft
     const now = new Date();
     const q = Math.floor(now.getMonth() / 3) + 1;
     const quarterId = `${now.getFullYear()}-Q${q}`;
     _saveToLocalHistory({
-      type: 'macro', subType: 'draft', residentId, residentName, quarterId,
+      type: 'macro', subType: 'draft', mode: mode,
+      residentId, residentName, quarterId,
       evaluatorId: currentUser?.id, evaluatorName: currentUser?.name,
+      scores: rawScores, comments: allComments,
       timestamp: Date.now(),
     });
     showToast('טיוטה נשמרה אוטומטית', 'info');
