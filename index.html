@@ -627,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.4';
+const APP_VERSION = '2.9.5';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Rename: "התיק שלי"→"תיק המשובים שלי", "הפעולות שלי"→"פעולות ובחנים שלי", הסרת "סיכומים מאושרים" מהתפריט.';
+const APP_VERSION_NOTES = 'Fix: כפתור "המשך" בטיוטות משחזר את כל נתוני הטיוטה (ציונים, הערות, מתמחה) מההיסטוריה.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1598,6 +1598,23 @@ function _getLocalHistory() {
   } catch (e) { return []; }
 }
 
+// Continue editing an explicit draft from EVAL_HISTORY
+function _continueDraft(origIdx) {
+  const history = _getLocalHistory();
+  const entry = history[origIdx];
+  if (!entry || entry.subType !== 'draft') {
+    showToast('טיוטה לא נמצאה', 'error');
+    return;
+  }
+  // Store the full draft entry for restoration after the form renders
+  window._pendingDraftRestore = entry;
+  // Navigate to the appropriate form
+  const target = entry.type === 'macro'
+    ? (entry.mode === 'resident' ? 'resident-self' : entry.mode === 'chief' ? 'chief-self' : entry.mode === 'pd' ? 'pd-macro' : 'attending-macro')
+    : (entry.mode === 'attending' ? 'attending-micro' : 'attending-micro');
+  navigateTo(target);
+}
+
 function _deleteDraftFromHistory(index) {
   try {
     const history = JSON.parse(localStorage.getItem(LOCAL_HISTORY_KEY) || '[]');
@@ -1642,6 +1659,7 @@ function showRestoreBanner(screenId, formId, restoreFn) {
   if (!draft) return false;
   const screen = document.getElementById(screenId);
   if (!screen) return false;
+
   const minutesAgo = Math.max(1, Math.round((Date.now() - draft.timestamp) / 60000));
   const ageStr = minutesAgo < 60 ? `${minutesAgo} דקות` : `${Math.round(minutesAgo / 60)} שעות`;
   // Remove any existing draft banner for this formId (prevent duplicates)
@@ -4070,7 +4088,7 @@ function renderEvalStatus() {
               </div>
               ${r.isDraft ? `
                 <div class="flex gap-1.5 shrink-0">
-                  <button onclick="navigateTo('${r.type === 'macro' ? 'attending-macro' : 'attending-micro'}')" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך</button>
+                  <button onclick="_continueDraft(${r._origIdx})" class="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">המשך</button>
                   <button onclick="_deleteDraftFromHistory(${r._origIdx})" class="text-xs text-red-600 bg-red-50 hover:bg-red-100 px-2 py-1.5 rounded-lg" title="מחק טיוטא">🗑</button>
                 </div>` : ''}
             </div>
@@ -5069,7 +5087,40 @@ function renderMacroFormScreen(mode) {
     clearTimeout(timer);
     timer = setTimeout(() => saveDraft(formId, captureMacroState()), AUTOSAVE_DEBOUNCE);
   };
-  showRestoreBanner(screenId, formId, restoreMacroState);
+  // ── Restore explicit draft from EVAL_HISTORY if "המשך" was clicked ──
+  if (window._pendingDraftRestore && window._pendingDraftRestore.type === 'macro') {
+    const draft = window._pendingDraftRestore;
+    window._pendingDraftRestore = null;
+    // Skip autosave banner — we're restoring from EVAL_HISTORY
+    // Set resident
+    if (draft.residentId) {
+      const sel = document.getElementById('macro-resident-select');
+      if (sel) sel.value = draft.residentId;
+    }
+    // Restore Likert scores and textareas after a short delay for DOM readiness
+    setTimeout(() => {
+      const scr = document.getElementById(screenId);
+      if (!scr) return;
+      // Restore Likert scores from draft.scores (e.g. { 'attending-pc1': 3, ... })
+      if (draft.scores) {
+        Object.entries(draft.scores).forEach(([key, score]) => {
+          const btn = scr.querySelector(`[onclick*="'${key}'"][onclick*=", ${score})"]`);
+          if (btn) selectLikert(btn, key, score);
+        });
+      }
+      // Restore textarea comments from draft.comments (array of { idx, value })
+      if (draft.comments && draft.comments.length) {
+        const textareas = Array.from(scr.querySelectorAll('textarea'));
+        draft.comments.forEach(c => {
+          if (c.idx < textareas.length && c.value) textareas[c.idx].value = c.value;
+        });
+      }
+      showToast('טיוטה שוחזרה בהצלחה', 'success');
+    }, 300);
+    // Don't show autosave banner — draft restore takes priority
+  } else {
+    showRestoreBanner(screenId, formId, restoreMacroState);
+  }
   attachAutoSave(screenId, formId, captureMacroState);
   window._currentMacroFormId = formId;
 
