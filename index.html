@@ -627,9 +627,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.3';
+const APP_VERSION = '2.9.4';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Fix: (1) Settings save button + PD English name dynamic in reports. (2) Macro form auto-selects resident from PD context — eliminates false "choose resident" error.';
+const APP_VERSION_NOTES = 'Rename: "התיק שלי"→"תיק המשובים שלי", "הפעולות שלי"→"פעולות ובחנים שלי", הסרת "סיכומים מאושרים" מהתפריט.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2389,11 +2389,10 @@ const NAV_BY_ROLE = {
   ],
   resident: [
     { id: 'resident-dashboard',   label: 'הדשבורד שלי',         icon: '▦' },
-    { id: 'resident-procedures',  label: 'הפעולות שלי',         icon: '⊞' },
+    { id: 'resident-procedures',  label: 'פעולות ובחנים שלי',    icon: '⊞' },
     { id: 'resident-self-micro',  label: 'משוב מהיר עצמי',      icon: '⚡' },
     { id: 'resident-self',        label: 'הערכה תקופתית עצמית', icon: '◐' },
-    { id: 'resident-portfolio',   label: 'התיק שלי',            icon: '👤' },
-    { id: 'resident-approved',    label: 'סיכומים מאושרים',     icon: '✓' },
+    { id: 'resident-portfolio',   label: 'תיק המשובים שלי',     icon: '👤' },
     { id: 'resident-ai',          label: 'חיפוש חכם (AI)',      icon: '✦', divider: true },
     { id: 'resident-reports',     label: 'הפקת דוחות',          icon: '⤓' },
     { id: 'methodology',          label: 'מתודולוגיה',          icon: '📖', divider: true },
@@ -4187,7 +4186,7 @@ function renderPortfolio(viewer) {
     <div class="mb-5">
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 class="text-lg font-semibold">${isPd ? 'תיק אישי מתמחה' : 'התיק שלי'}</h1>
+          <h1 class="text-lg font-semibold">${isPd ? 'תיק אישי מתמחה' : 'תיק המשובים שלי'}</h1>
           <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'כל ההערכות וההיסטוריה של מתמחה נבחר' : 'כל ההערכות וההיסטוריה שלי'}</p>
         </div>
       </div>
@@ -7085,7 +7084,7 @@ function renderProceduresScreen(role) {
   if (role === 'resident') {
     target.innerHTML = `
       <div class="mb-5">
-        <h1 class="text-lg font-semibold">הפעולות שלי</h1>
+        <h1 class="text-lg font-semibold">פעולות ובחנים שלי</h1>
         <p class="text-xs text-gray-500 mt-0.5">התקדמות מול יעדי הסילבוס לפי קטגוריה</p>
       </div>
       <div id="procedures-content"></div>
