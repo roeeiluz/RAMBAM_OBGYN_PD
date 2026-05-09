@@ -663,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.16';
+const APP_VERSION = '2.9.17';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "Auto-save חזק יותר להערכה תקופתית: שומר טיוטה גם בלחיצה על 'חזור לתפריט' (תיקון פער בארכיטקטורת האריחים), גם בסגירת דפדפן/טאב, וגם במעבר ה-app לרקע במובייל. Belt-and-suspenders.";
+const APP_VERSION_NOTES = "מסך הערכה תקופתית עצמית: אריחים 2x2 גם במובייל (במקום stack של 4) + padding מצומצם + כותרת ובאנר קומפקטיים — כדי שהכל ייכנס למסך אחד בלי גלילה. מדריך מהיר נכתב מחדש: משפט הסבר + דוגמה אחת לכל אחת מ-6 קומפטנציות ACGME.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6863,75 +6863,68 @@ function _renderResidentMacroTiles(mode) {
                    s.hasFinal ? `הוגשה הערכה — ניתן לעדכן עד ${s.deadline ? s.deadline + ' 23:00' : 'אישור PD'}` :
                    'יש להגיש הערכה תחילה';
 
+  // v2.9.17: compact tiles — 2x2 grid on mobile too (no vertical stack), reduced padding
   const tileBtn = (icon, title, sub, disabled, action) => `
     <button onclick="${disabled ? '' : action}" ${disabled ? 'disabled' : ''}
-            class="bg-white rounded-xl border-2 p-5 text-right transition-all
+            class="bg-white rounded-xl border-2 p-3 text-right transition-all
                    ${disabled ? 'border-gray-200 opacity-50 cursor-not-allowed' : `border-gray-200 hover:border-${accentColor}-400 hover:shadow-md cursor-pointer`}">
-      <div class="text-3xl mb-2">${icon}</div>
-      <div class="text-sm font-semibold mb-1">${title}</div>
-      <div class="text-xs text-gray-500 leading-relaxed">${sub}</div>
+      <div class="text-2xl mb-1">${icon}</div>
+      <div class="text-xs font-semibold mb-0.5">${title}</div>
+      <div class="text-[10px] text-gray-500 leading-snug">${sub}</div>
     </button>
   `;
 
   screen.innerHTML = `
-    <div class="mb-5">
-      <h1 class="text-lg font-semibold">הערכה תקופתית עצמית</h1>
-      <p class="text-xs text-gray-500 mt-0.5">רבעון ${s.quarterId} · בחר/י את הפעולה הרצויה</p>
+    <div class="mb-3">
+      <h1 class="text-base font-semibold">הערכה תקופתית עצמית · ${s.quarterId}</h1>
+      <p class="text-[11px] text-gray-500">בחר/י את הפעולה הרצויה</p>
     </div>
     ${s.hasApproved ? `
-      <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-        <span class="text-xl">✓</span>
-        <div class="flex-1">
-          <div class="text-sm font-medium text-green-900">הערכת הרבעון אושרה</div>
-          <div class="text-xs text-green-700 mt-0.5">המנהלת אישרה את הסיכום. ניתן לראות בתיק האישי.</div>
-        </div>
+      <div class="bg-green-50 border border-green-200 rounded-lg p-2 mb-3 flex items-center gap-2">
+        <span class="text-base">✓</span>
+        <div class="flex-1 text-xs text-green-900"><strong>הערכת הרבעון אושרה</strong> · נמצאת בתיק האישי</div>
       </div>
     ` : s.deadlinePassed ? `
-      <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-        <span class="text-xl">🔒</span>
-        <div class="flex-1">
-          <div class="text-sm font-medium text-red-900">חלון העדכון נסגר</div>
-          <div class="text-xs text-red-700 mt-0.5">תאריך היעד (${s.deadline}) חלף ב-23:00. ההערכה ננעלה ולא ניתנת לעדכון.</div>
-        </div>
+      <div class="bg-red-50 border border-red-200 rounded-lg p-2 mb-3 flex items-center gap-2">
+        <span class="text-base">🔒</span>
+        <div class="flex-1 text-xs text-red-900"><strong>חלון העדכון נסגר</strong> · תאריך היעד (${s.deadline}) חלף ב-23:00</div>
       </div>
     ` : s.hasFinal ? `
-      <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-        <span class="text-xl">⏳</span>
-        <div class="flex-1">
-          <div class="text-sm font-medium text-amber-900">הערכה הוגשה — ממתינה לאישור PD</div>
-          <div class="text-xs text-amber-700 mt-0.5">${s.deadline ? `ניתן לעדכן עד ${s.deadline} בשעה 23:00.` : 'ניתן לעדכן את ההערכה עד שה-PD יאשר.'}</div>
-        </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3 flex items-center gap-2">
+        <span class="text-base">⏳</span>
+        <div class="flex-1 text-xs text-amber-900"><strong>הערכה הוגשה</strong> · ${s.deadline ? `ניתן לעדכן עד ${s.deadline} 23:00` : 'ממתינה לאישור PD'}</div>
       </div>
     ` : ''}
-    <div class="grid md:grid-cols-2 gap-3 mb-5">
-      ${tileBtn('✏️', 'פתח הערכה חדשה', tile1Sub, tile1Disabled, `_residentMacroOpen('${mode}', 'new')`)}
-      ${tileBtn('📝', 'טען טיוטה אחרונה', tile2Sub, tile2Disabled, `_residentMacroOpen('${mode}', 'draft')`)}
+    <!-- v2.9.17: 2x2 grid even on mobile (compact tiles fit one viewport with the guide) -->
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      ${tileBtn('✏️', 'פתח חדשה', tile1Sub, tile1Disabled, `_residentMacroOpen('${mode}', 'new')`)}
+      ${tileBtn('📝', 'טען טיוטה', tile2Sub, tile2Disabled, `_residentMacroOpen('${mode}', 'draft')`)}
       ${tileBtn('🔄', 'עדכן הגשה', tile3Sub, tile3Disabled, `_residentMacroOpen('${mode}', 'update')`)}
-      ${tileBtn('📚', 'ארכיון הערכות', 'הערכות שאושרו ברבעונים קודמים', false, `_residentMacroOpen('${mode}', 'archive')`)}
+      ${tileBtn('📚', 'ארכיון', 'הערכות שאושרו ברבעונים קודמים', false, `_residentMacroOpen('${mode}', 'archive')`)}
     </div>
 
-    <!-- v2.9.12: Quick guide (collapsible) for filling out the periodic evaluation -->
-    <details class="bg-white rounded-xl border border-gray-200 mb-3">
-      <summary class="p-4 cursor-pointer hover:bg-gray-50 rounded-xl flex items-center justify-between gap-2">
+    <!-- v2.9.17: compact quick guide — one sentence + example per ACGME competency -->
+    <details class="bg-white rounded-xl border border-gray-200">
+      <summary class="px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-xl flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
-          <span class="text-lg">💡</span>
-          <span class="text-sm font-medium">מדריך מהיר למילוי המשוב התקופתי</span>
+          <span class="text-base">💡</span>
+          <span class="text-xs font-medium">מדריך מהיר למילוי המשוב</span>
         </div>
         <span class="text-gray-400 text-xs">▾</span>
       </summary>
-      <div class="px-4 pb-4 border-t border-gray-100 text-xs text-gray-700 leading-relaxed space-y-2 pt-3">
-        <p><strong>המטרה:</strong> הערכה עצמית כנה של ההתקדמות שלך לפי 6 קומפטנציות ACGME — Patient Care, Medical Knowledge, Professionalism, Interpersonal & Communication Skills, Practice-Based Learning, Systems-Based Practice.</p>
-        <p><strong>סולם 1-5:</strong> 1 = זקוק/ה לפיקוח מלא · 3 = עצמאי/ת ברוב המקרים · 5 = עצמאי/ת לחלוטין ויכול/ה ללמד אחרים.</p>
-        <p><strong>איך למלא נכון:</strong></p>
-        <ul class="list-disc pr-5 space-y-1">
-          <li>בחר/י ציון לכל פריט מתחת לקומפטנציה — בהתבסס על מקרים אמיתיים מהרבעון.</li>
-          <li>הוסף/י דוגמה ספציפית ב-1-2 משפטים בהערה לקומפטנציה.</li>
-          <li>2 נקודות חוזק שלך + 2 תחומים שאת/ה רוצה לשפר.</li>
-          <li>יעדים ל-6 חודשים הבאים — מדידים (SMART), לדוגמה: "לבצע 10 לפרוסקופיות עצמאיות עד סוף Q3".</li>
-        </ul>
-        <p class="text-gray-500"><strong>טיפ:</strong> הטיוטה נשמרת אוטומטית. תוכל/י לחזור ולהמשיך בכל שלב לפני שליחה סופית.</p>
+      <div class="px-3 pb-3 border-t border-gray-100 pt-2.5">
+        <p class="text-xs text-gray-600 mb-2 leading-snug">דרג כל פריט מ-<strong>1</strong> (זקוק/ה לפיקוח) עד <strong>5</strong> (עצמאי/ת לחלוטין). הוסף/י דוגמה אמיתית.</p>
+        <div class="space-y-1.5 text-[11px] leading-snug">
+          <div><strong class="text-blue-700">PC — Patient Care:</strong> יכולת טיפול במטופלות. <span class="text-gray-500"><em>למשל: ביצעתי 3 לידות ואקום עצמאיות.</em></span></div>
+          <div><strong class="text-blue-700">MK — Medical Knowledge:</strong> ידע רפואי קליני ותיאורטי. <span class="text-gray-500"><em>למשל: סיימתי פרק על הפרעות שליה והשתמשתי במשמרת.</em></span></div>
+          <div><strong class="text-blue-700">ICS — Communication:</strong> תקשורת עם מטופלות וצוות. <span class="text-gray-500"><em>למשל: הסברתי למשפחה תוצאה רגישה לאחר ניתוח.</em></span></div>
+          <div><strong class="text-blue-700">PROF — Professionalism:</strong> אחריות, אתיקה, יחס מקצועי. <span class="text-gray-500"><em>למשל: השלמתי תורנויות מלאות והגעתי בזמן.</em></span></div>
+          <div><strong class="text-blue-700">PBLI — Learning:</strong> למידה ושיפור עצמי. <span class="text-gray-500"><em>למשל: אחרי מקרה מורכב קראתי הנחיות עדכניות.</em></span></div>
+          <div><strong class="text-blue-700">SBP — Systems:</strong> עבודה במערכת הבריאות. <span class="text-gray-500"><em>למשל: תיאמתי בין סיעוד לרופא בקבלה דחופה.</em></span></div>
+        </div>
+        <p class="text-[11px] text-gray-500 mt-2"><strong>טיפ:</strong> הטיוטה נשמרת אוטומטית גם בלי "שמור".</p>
         <div class="pt-2 border-t border-gray-100 mt-2">
-          <button onclick="navigateTo('methodology')" class="text-xs text-blue-600 hover:underline font-medium">לפירוט מלא → דף המתודולוגיה</button>
+          <button onclick="navigateTo('methodology')" class="text-[11px] text-blue-600 hover:underline font-medium">לפירוט מלא → דף המתודולוגיה</button>
         </div>
       </div>
     </details>
