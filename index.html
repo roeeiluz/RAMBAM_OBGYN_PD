@@ -501,6 +501,14 @@
             <div class="text-2xl mb-1">🩺</div>מרפאה
           </button>
         </div>
+        <!-- v2.9.13: request micro feedback from a senior -->
+        <div class="mt-3 pt-3 border-t border-gray-100">
+          <button onclick="_openMicroRequestModal()" class="w-full bg-purple-50 border-2 border-dashed border-purple-300 rounded-lg p-3 text-sm text-purple-800 hover:bg-purple-100 transition-colors text-center">
+            <div class="text-2xl mb-1">📨</div>
+            <div class="font-medium">בקש משוב מבכיר</div>
+            <div class="text-xs text-purple-600 mt-0.5">שלח/י בקשה לרופא בכיר/צ'יף למילוי משוב מהיר עליך (אחרי ניתוח, יום עבודה וכו')</div>
+          </button>
+        </div>
       </div>
 
       <div id="self-micro-section" class="hidden">
@@ -650,9 +658,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.12';
-const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Resident/Chief: 4-tile UI להערכה תקופתית + מדריך מהיר. Distribution: PD/רכזת שולחים בקשות הערכה למספר מעריכים עם תאריך יעד (מסך חדש "בקשות הערכה"). Dashboard מתמחה: באנר "פעולות נדרשות". Eval-status: בקשות ממתינות למעריך.';
+const APP_VERSION = '2.9.13';
+const APP_VERSION_DATE = '9.5.2026';
+const APP_VERSION_NOTES = "שלב 1: rename הערכה מיידית/מהירה ⇐ משוב מהיר בכל מקום. מתמחה יכול לבקש משוב מהיר מבכיר/צ'יף — אריח חדש במסך משוב מהיר עצמי + modal לבחירת מעריך, הקשר אירוע, deadline והערות.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2410,7 +2418,7 @@ const ROLES = [
 const NAV_BY_ROLE = {
   pd: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
-    { id: 'attending-micro', label: 'הערכה מיידית',  icon: '⚡' },
+    { id: 'attending-micro', label: 'משוב מהיר',  icon: '⚡' },
     { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
     { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷', divider: true },
     { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
@@ -2435,7 +2443,7 @@ const NAV_BY_ROLE = {
     { id: 'settings',     label: 'הגדרות',         icon: '⚙' },
   ],
   attending: [
-    { id: 'attending-micro',      label: 'הערכה מיידית',    icon: '⚡' },
+    { id: 'attending-micro',      label: 'משוב מהיר',    icon: '⚡' },
     { id: 'attending-macro',      label: 'הערכה תקופתית',   icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
     { id: 'eval-status',          label: 'סטטוס משובים',    icon: '◷' },
@@ -2443,7 +2451,7 @@ const NAV_BY_ROLE = {
     { id: 'settings',             label: 'הגדרות',           icon: '⚙' },
   ],
   chief: [
-    { id: 'chief-micro',      label: 'הערכה מיידית',     icon: '⚡' },
+    { id: 'chief-micro',      label: 'משוב מהיר',     icon: '⚡' },
     { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
     { id: 'eval-status',      label: 'סטטוס משובים',     icon: '◷' },
     { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
@@ -3875,7 +3883,7 @@ function renderMicroForm(role) {
         <span class="text-xs text-gray-500">חדר ניתוח 3 · לפני 2 דקות</span>
         ${isChief ? '<span class="text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full">מתמחה אחראי</span>' : ''}
       </div>
-      <h1 class="text-lg font-semibold">הערכה מיידית</h1>
+      <h1 class="text-lg font-semibold">משוב מהיר</h1>
       ${isChief ? '<p class="text-xs text-gray-500 mt-0.5">משוב כצ׳יף לזוטר במשמרת</p>' : ''}
     </div>
 
@@ -4429,7 +4437,7 @@ function renderPortfolio(viewer) {
           <div class="text-xl font-semibold mt-0.5">${totalCount}</div>
         </div>
         <div class="bg-blue-50 rounded-lg p-2.5 text-center">
-          <div class="text-xs text-gray-500">מיידיות</div>
+          <div class="text-xs text-gray-500">משובים מהירים</div>
           <div class="text-xl font-semibold text-blue-700 mt-0.5">${microCount}</div>
         </div>
         <div class="bg-purple-50 rounded-lg p-2.5 text-center">
@@ -4542,6 +4550,14 @@ function renderSelfMicroForm(role) {
           <button class="self-event-btn p-3 border border-gray-200 rounded-lg text-sm hover:border-blue-300 text-center" data-event="oncall" onclick="selectSelfEvent(this)"><div class="text-2xl mb-1">🌙</div>תורנות</button>
           <button class="self-event-btn p-3 border border-gray-200 rounded-lg text-sm hover:border-blue-300 text-center" data-event="ward" onclick="selectSelfEvent(this)"><div class="text-2xl mb-1">📋</div>אחריות מחלקה</button>
           <button class="self-event-btn p-3 border border-gray-200 rounded-lg text-sm hover:border-blue-300 text-center" data-event="clinic" onclick="selectSelfEvent(this)"><div class="text-2xl mb-1">🩺</div>מרפאה</button>
+        </div>
+        <!-- v2.9.13: NEW tile — request micro feedback from a senior -->
+        <div class="mt-3 pt-3 border-t border-gray-100">
+          <button onclick="_openMicroRequestModal()" class="w-full bg-purple-50 border-2 border-dashed border-purple-300 rounded-lg p-3 text-sm text-purple-800 hover:bg-purple-100 transition-colors text-center">
+            <div class="text-2xl mb-1">📨</div>
+            <div class="font-medium">בקש משוב מבכיר</div>
+            <div class="text-xs text-purple-600 mt-0.5">שלח/י בקשה לרופא בכיר/צ'יף למילוי משוב מהיר עליך (אחרי ניתוח, יום עבודה וכו')</div>
+          </button>
         </div>
       </div>
 
@@ -6400,6 +6416,131 @@ function _cancelEvalRequest(reqId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// v2.9.13: Micro Requests — resident requests micro feedback from senior
+// Storage key: cbme_micro_requests. Mirror to Drive in production.
+// ═══════════════════════════════════════════════════════════════════
+const MICRO_REQUESTS_KEY = 'cbme_micro_requests';
+
+function _getMicroRequests() {
+  try { return JSON.parse(localStorage.getItem(MICRO_REQUESTS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function _saveMicroRequests(arr) {
+  try { localStorage.setItem(MICRO_REQUESTS_KEY, JSON.stringify(arr)); }
+  catch (e) { console.warn('Micro requests save failed:', e); }
+}
+
+// Compute completion: was a micro evaluation submitted by the requested evaluator
+// for this resident matching the request's date+/-event since the request was created?
+function _microRequestCompletion(req) {
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [..._getLocalHistory(), ...seedEvals];
+  const created = new Date(req.createdAt).getTime();
+  const matching = all.find(e =>
+    e.type === 'micro' && !e.selfAssessment &&
+    e.evaluatorId === req.evaluatorId &&
+    e.residentId === req.residentId &&
+    new Date(e.timestamp || e.date || 0).getTime() >= created
+  );
+  return !!matching;
+}
+
+function _openMicroRequestModal() {
+  // Build evaluator list — only attendings + chiefs (NOT PD or coordinator)
+  const allSeniors = [...(STAFF.attending || []), ...(STAFF.chief || [])]
+    .filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i);
+  const eventOptions = [
+    { id: '', label: 'ללא הקשר ספציפי' },
+    { id: 'delivery', label: 'חדר לידה' },
+    { id: 'cs', label: 'ניתוח קיסרי' },
+    { id: 'or', label: 'פעולות בח״נ' },
+    { id: 'lap', label: 'לפרוסקופיה' },
+    { id: 'triage', label: 'מיון' },
+    { id: 'oncall', label: 'תורנות' },
+    { id: 'ward', label: 'אחריות מחלקה' },
+    { id: 'clinic', label: 'מרפאה' },
+  ];
+  const defaultDeadline = new Date(Date.now() + 3*24*60*60*1000).toISOString().slice(0, 10);
+
+  const html = `
+    <div id="micro-req-modal-bg" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onclick="if(event.target===this) _closeMicroRequestModal()">
+      <div class="bg-white rounded-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">בקשת משוב מהיר</h2>
+          <button onclick="_closeMicroRequestModal()" class="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
+        <p class="text-xs text-gray-500 mb-4">הבקשה תופיע אצל הבכיר במסך "בקשות משובים והערכותי". המשוב שייכתב יישמר בתיק שלך.</p>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">בכיר/צ'יף</label>
+            <select id="mr-evaluator" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+              <option value="">— בחר —</option>
+              ${allSeniors.map(s => `<option value="${s.id}|${s.name}">${s.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">הקשר (אופציונלי)</label>
+            <select id="mr-event" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+              ${eventOptions.map(e => `<option value="${e.id}">${e.label}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">תאריך יעד</label>
+            <input type="date" id="mr-deadline" value="${defaultDeadline}" min="${new Date().toISOString().slice(0,10)}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">הערות (אופציונלי)</label>
+            <textarea id="mr-notes" rows="2" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="לדוגמה: ביצעתי לידה ואקום, אשמח לקבל פידבק"></textarea>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="_closeMicroRequestModal()" class="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">ביטול</button>
+          <button onclick="_submitMicroRequest()" class="flex-1 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">שלח בקשה</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+}
+
+function _closeMicroRequestModal() {
+  const m = document.getElementById('micro-req-modal-bg');
+  if (m) m.remove();
+}
+
+function _submitMicroRequest() {
+  const evVal = document.getElementById('mr-evaluator').value;
+  if (!evVal) { showToast('יש לבחור בכיר', 'error'); return; }
+  const [evaluatorId, evaluatorName] = evVal.split('|');
+  const eventId = document.getElementById('mr-event').value;
+  const eventLabel = document.getElementById('mr-event').selectedOptions[0]?.textContent || '';
+  const deadline = document.getElementById('mr-deadline').value;
+  const notes = document.getElementById('mr-notes').value.trim();
+  if (!deadline) { showToast('יש לציין תאריך יעד', 'error'); return; }
+
+  const req = {
+    id: 'mreq_' + Date.now(),
+    type: 'micro_request',
+    residentId: currentUser?.id,
+    residentName: currentUser?.name || '',
+    evaluatorId, evaluatorName,
+    eventId, eventLabel,
+    deadline, notes,
+    createdAt: new Date().toISOString(),
+    status: 'open',
+  };
+  const all = _getMicroRequests();
+  all.push(req);
+  _saveMicroRequests(all);
+  // TODO production: POST to backend action `submit_micro_request` (BACKEND_NOTES.md)
+  logToAudit('micro_request_created', { evaluatorId, eventId });
+  showToast('✅ בקשת משוב נשלחה', 'success');
+  _closeMicroRequestModal();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // v2.9.11: Resident/Chief macro landing — 4 tiles UI
 // (Open new / Load draft / Update submission / Archive)
 // State per quarter is derived from localStorage + DEMO_SEED_EVALUATIONS.
@@ -6734,7 +6875,7 @@ function renderReportsScreen() {
         <p>כל הקבצים נשמרים בתיקיית <strong>CBME_OBGYN</strong> ב-Google Drive של המחלקה:</p>
         <div class="bg-white/60 rounded-lg p-2.5 font-mono text-xs space-y-0.5">
           <div><strong>CBME_OBGYN/</strong></div>
-          <div class="pr-4">📁 <strong>evaluations/micro/</strong>YYYY-MM/ — הערכות מיידיות (לפי חודש)</div>
+          <div class="pr-4">📁 <strong>evaluations/micro/</strong>YYYY-MM/ — משובים מהירים (לפי חודש)</div>
           <div class="pr-4">📁 <strong>evaluations/macro/</strong>QUARTER/ — הערכות תקופתיות (טיוטות + סופיות)</div>
           <div class="pr-4">📁 <strong>procedures/</strong> — קבצי פעולות (Excel)</div>
           <div class="pr-4">📁 <strong>exams/</strong> — ציוני מבחנים</div>
@@ -7069,7 +7210,7 @@ ${reportStyles()}
   <section><h2>סיכום מנהלים</h2>
     <table class="summary-tbl">
       <tr><th>ציון EPA ממוצע</th><td>${microAvg ?? '—'} / 5</td></tr>
-      <tr><th>הערכות מהירות שהתקבלו</th><td>${microEvals.length}</td></tr>
+      <tr><th>משובים מהירים שהתקבלו</th><td>${microEvals.length}</td></tr>
       <tr><th>משובים עצמיים</th><td>${selfMicros.length}</td></tr>
       <tr><th>הערכות תקופתיות</th><td>${macros.filter(m => m.evaluatorRole !== 'resident').length} בכירים${macros.find(m => m.evaluatorRole === 'resident') ? ' + עצמית' : ''}</td></tr>
       <tr><th>סה"כ פעולות מתועדות</th><td>${procs.reduce((s,p) => s+p.actual, 0)} פעולות + ${ces?.total || 0} קיסריים</td></tr>
@@ -7102,7 +7243,7 @@ ${reportStyles()}
     ${ces ? `<p style="margin-top:10px"><strong>ניתוחים קיסריים:</strong> ${ces.total} סה"כ (${ces.first} ראשונים, ${ces.repeat} חוזרים) — יעד: ${ces.target}</p>` : ''}
   </section>
 
-  <section><h2>הערכות מהירות (Micro) — אחרונות</h2>
+  <section><h2>משובים מהירים (Micro) — אחרונות</h2>
     ${microEvals.length === 0 ? '<p class="empty">אין הערכות.</p>' : `
     <ul class="feedback-list">${microEvals.slice(0, 10).map(e => {
       const d = new Date(e.timestamp);
@@ -7511,7 +7652,7 @@ function buildDeptReport(periodLabel, lang) {
   <section><h2>${isEN ? 'Summary KPIs' : 'מדדים מרכזיים'}</h2>
     <table class="summary-tbl">
       <tr><th>${isEN ? 'Total Evaluations' : 'סה"כ הערכות'}</th><td>${totalEvals}</td></tr>
-      <tr><th>${isEN ? 'Micro Evaluations' : 'הערכות מיידיות'}</th><td>${microEvals.length}</td></tr>
+      <tr><th>${isEN ? 'Micro Evaluations' : 'משובים מהירים'}</th><td>${microEvals.length}</td></tr>
       <tr><th>${isEN ? 'Macro Evaluations' : 'הערכות תקופתיות'}</th><td>${macroEvals.length}</td></tr>
       <tr><th>${isEN ? 'Active Residents' : 'מתמחים פעילים'}</th><td>${RESIDENTS.filter(r => r.pgy >= PILOT_PGY_RANGE[0] && r.pgy <= PILOT_PGY_RANGE[1]).length}</td></tr>
     </table>
@@ -8171,8 +8312,8 @@ function renderSettings() {
       <div class="space-y-3">
         ${settingToggle({
           id: 'emailOnMicroSubmit',
-          title: isResident ? 'קבלת עותק של הערכה מיידית (Micro) שניתנה לי' : 'שליחת עותק של Micro למתמחה',
-          desc: 'בכל פעם שבכיר/ה ממלא/ת הערכה מיידית עליי, אקבל מייל עם תוכן הפידבק הגלוי.',
+          title: isResident ? 'קבלת עותק של משוב מהיר (Micro) שניתן לי' : 'שליחת עותק של משוב מהיר למתמחה',
+          desc: 'בכל פעם שבכיר/ה ממלא/ת משוב מהיר עליי, אקבל מייל עם תוכן הפידבק הגלוי.',
           value: USER_SETTINGS.emailOnMicroSubmit,
           enabled: true,
         })}
@@ -8432,7 +8573,7 @@ function renderMethodology() {
   const roleIntro = {
     pd:          'מסמך מנחה לכלל המשתמשים. כפד תוכל/י להתאים את התוכן והדגשים לחברי הצוות.',
     coordinator: 'מסמך מנחה לכלל המשתמשים. כרכזת תוכל/י להפנות בכירים ומתמחים לחלקים הרלוונטיים.',
-    attending:   'מסמך מנחה לבכירים. הסעיפים החשובים לך: הערכות מהירות, הערכה תקופתית, וההבדל בין ההערות הגלויות לפרטיות.',
+    attending:   'מסמך מנחה לבכירים. הסעיפים החשובים לך: משובים מהירים, הערכה תקופתית, וההבדל בין ההערות הגלויות לפרטיות.',
     chief:       'מסמך מנחה לאחראיות/ים. הסעיפים החשובים לך: מילוי הערכות, הערכה עצמית מדויקת, ובניית תוכנית אישית.',
     resident:    'מסמך מנחה למתמחים. הסעיפים החשובים לך: איך לקרוא את הציונים שלך, מילוי הערכה עצמית מדויקת, ובניית תוכנית אישית.',
   }[role] || 'מסמך מנחה לכלל משתמשי המערכת.';
@@ -8454,7 +8595,7 @@ function renderMethodology() {
         <li><a href="#sec-philosophy" class="hover:underline">פילוסופיה: מהי הערכה מבוססת יכולות (CBME)</a></li>
         <li><a href="#sec-acgme" class="hover:underline">6 הקומפטנציות של ACGME — הגדרות ודוגמאות</a></li>
         <li><a href="#sec-epa" class="hover:underline">סולם ה-EPA: 1-5 והמשמעות הקלינית של כל ציון</a></li>
-        <li><a href="#sec-micro" class="hover:underline">הערכה מיידית (Micro) — מתי ואיך למלא</a></li>
+        <li><a href="#sec-micro" class="hover:underline">משוב מהיר (Micro) — מתי ואיך למלא</a></li>
         <li><a href="#sec-macro" class="hover:underline">הערכה תקופתית (Macro) — איך מסכמים רבעון</a></li>
         <li><a href="#sec-self" class="hover:underline">הערכה עצמית — האמנות של דיוק ונדיבות</a></li>
         <li><a href="#sec-feedback" class="hover:underline">איך כותבים פידבק קונסטרוקטיבי (5 כללים)</a></li>
@@ -8580,7 +8721,7 @@ function renderMethodology() {
 
     <!-- 4. Micro evaluations -->
     <section id="sec-micro" class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-      <h2 class="text-base font-semibold mb-3">4. הערכה מיידית (Micro) — מתי ואיך למלא</h2>
+      <h2 class="text-base font-semibold mb-3">4. משוב מהיר (Micro) — מתי ואיך למלא</h2>
       <p class="text-sm text-gray-700 leading-relaxed mb-3">
         Micro היא הערכה <strong>נקודתית של אירוע ספציפי</strong>: לידה אחת, ניתוח אחד, משמרת ER. נמשך ~2 דקות. המטרה: לתעד את הביצוע בעודו טרי, ולתת למתמחה משוב בזמן אמת.
       </p>
@@ -10444,7 +10585,7 @@ function runDeterministicAnalysis(query, ctx) {
     if (r.microStats && r.microStats.totalCount > 0) {
       findings.push({
         type: 'neutral',
-        title: `${r.microStats.totalCount} הערכות מיידיות הוגשו`,
+        title: `${r.microStats.totalCount} משובים מהירים הוגשו`,
         detail: `ממוצע EPA: ${r.microStats.avgEpaScore}/5. ${r.pgyExpectation ? `צפוי ל-PGY ${r.pgy}: ${r.pgyExpectation.typicalRange}.` : ''}`,
       });
     }
