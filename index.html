@@ -414,11 +414,13 @@
       <!-- v2.9.12: Pending action banner — populated by renderResidentDashboard if there's a pending eval request -->
       <div id="resident-pending-banner"></div>
 
-      <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="grid grid-cols-2 gap-3 mb-4">
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">ציון Q2</div><div class="text-2xl font-medium mt-1" id="r-score">—</div></div>
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">הערכות</div><div class="text-2xl font-medium mt-1" id="r-eval-count">0</div></div>
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">יעדים</div><div class="text-2xl font-medium mt-1" id="r-goals">—</div></div>
       </div>
+
+      <!-- v2.9.15: Actionable section linked to latest pd_approved evaluation -->
+      <div id="r-actionable" class="mb-4"></div>
 
       <div class="grid md:grid-cols-2 gap-3 mb-4">
         <div class="bg-white rounded-xl border border-gray-200 p-4">
@@ -661,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.14';
+const APP_VERSION = '2.9.15';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "שלבים 2-4: מסך 'בקשות משובים והערכותי' לבכיר; הסרת באנר מ-eval-status; rename ל'היסטוריית משובים והערכות' עם 5 chips (טיוטות תקופתי/מהיר/סגורות) + פילטר רבעון/טווח + 10 אחרונות; deadline lock לעדכון הערכה תקופתית עצמית ב-23:00 ביום היעד.";
+const APP_VERSION_NOTES = "Resident dashboard: הוסר KPI 'יעדים' הריק. נוספה חלונית 'המשימות שלי לתקופה' עם 3 קופסאות — 2 נקודות לשיפור (קריאה בלבד), יעדים (קריאה בלבד) — מההערכה התקופתית האחרונה שאושרה, ועוד קופסה למלל אישי חופשי. PD form: שדה חדש 'נקודות לשיפור עיקריות'.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3429,12 +3431,121 @@ function renderStatus() {
 // RESIDENT: DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
 let rCharts = {};
+// ═══════════════════════════════════════════════════════════════════
+// v2.9.15: Resident actionable section + personal pad
+// - Box 1 (read-only): improve points from latest pd_approved entry
+// - Box 2 (read-only): goals from latest pd_approved entry
+// - Box 3 (editable): free-form personal notes — saved to localStorage,
+//   persists across quarters, INDEPENDENT of approved evals (no risk
+//   of overriding fresh approvals).
+// ═══════════════════════════════════════════════════════════════════
+const RESIDENT_PAD_KEY = 'cbme_resident_personal_pad';
+
+function _getResidentPad(userId) {
+  try {
+    const obj = JSON.parse(localStorage.getItem(RESIDENT_PAD_KEY) || '{}');
+    return obj[userId] || '';
+  } catch (e) { return ''; }
+}
+function _saveResidentPad(userId, text) {
+  try {
+    const obj = JSON.parse(localStorage.getItem(RESIDENT_PAD_KEY) || '{}');
+    obj[userId] = text;
+    localStorage.setItem(RESIDENT_PAD_KEY, JSON.stringify(obj));
+  } catch (e) { console.warn('Resident pad save failed:', e); }
+}
+
+function _findLatestApprovedEval(residentId) {
+  if (!residentId) return null;
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [..._getLocalHistory(), ...seedEvals];
+  const approved = all.filter(h =>
+    h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === residentId
+  ).sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+  return approved[0] || null;
+}
+
+function _renderResidentActionable(r) {
+  const container = document.getElementById('r-actionable');
+  if (!container) return;
+  const userId = r?.id || currentUser?.id;
+  const latest = _findLatestApprovedEval(userId);
+  const padText = _getResidentPad(userId);
+  const improve = (latest && latest.improvePoints) ? latest.improvePoints : '';
+  const goals = (latest && latest.goals) ? latest.goals : '';
+  const sourceQuarter = latest ? latest.quarterId : null;
+
+  container.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="text-xs font-medium text-gray-500 uppercase">המשימות שלי לתקופה</div>
+        ${sourceQuarter ? `<span class="text-xs text-gray-400">מההערכה התקופתית האחרונה (${sourceQuarter})</span>` : ''}
+      </div>
+      <div class="grid md:grid-cols-3 gap-3">
+        <!-- Box 1: improve points (read-only) -->
+        <div class="bg-amber-50/50 border border-amber-100 rounded-lg p-3">
+          <div class="text-xs font-semibold text-amber-900 mb-2 flex items-center gap-1">
+            <span>↗</span><span>2 נקודות לשיפור</span>
+          </div>
+          <div class="text-xs text-gray-700 leading-relaxed whitespace-pre-line min-h-[60px]">
+            ${improve ? improve.replace(/[<>]/g, '') : '<span class="text-gray-400">לא הוזנו עדיין נקודות לשיפור בהערכה האחרונה</span>'}
+          </div>
+        </div>
+        <!-- Box 2: goals (read-only) -->
+        <div class="bg-blue-50/50 border border-blue-100 rounded-lg p-3">
+          <div class="text-xs font-semibold text-blue-900 mb-2 flex items-center gap-1">
+            <span>🎯</span><span>יעדים לתקופה</span>
+          </div>
+          <div class="text-xs text-gray-700 leading-relaxed whitespace-pre-line min-h-[60px]">
+            ${goals ? goals.replace(/[<>]/g, '') : '<span class="text-gray-400">לא הוזנו עדיין יעדים בהערכה האחרונה</span>'}
+          </div>
+        </div>
+        <!-- Box 3: personal pad (editable) -->
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <div class="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+            <span>✎</span><span>מטרות אישיות נוספות</span>
+          </div>
+          <textarea id="r-personal-pad"
+            placeholder="יעדים / מטרות / תפקידים נוספים (כתיב חופשי שלך, לא משותף עם המנהלת)"
+            class="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 h-24 resize-y focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400">${padText.replace(/[<>]/g, '')}</textarea>
+          <div class="flex items-center justify-between mt-1.5">
+            <span id="r-pad-status" class="text-xs text-gray-400"></span>
+            <button onclick="_saveResidentPadFromUI()" class="text-xs px-3 py-1 bg-gray-700 text-white rounded hover:bg-gray-800">שמור</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Auto-save on blur (gentle UX) + status hint
+  const ta = document.getElementById('r-personal-pad');
+  if (ta) {
+    let dirty = false;
+    ta.addEventListener('input', () => { dirty = true; const s = document.getElementById('r-pad-status'); if (s) s.textContent = 'יש שינויים שלא נשמרו'; });
+    ta.addEventListener('blur', () => { if (dirty) _saveResidentPadFromUI(); });
+  }
+}
+
+function _saveResidentPadFromUI() {
+  const ta = document.getElementById('r-personal-pad');
+  const status = document.getElementById('r-pad-status');
+  if (!ta) return;
+  const userId = currentUser?.id || CURRENT_RESIDENT?.id;
+  if (!userId) return;
+  _saveResidentPad(userId, ta.value);
+  if (status) status.textContent = 'נשמר ✓';
+  setTimeout(() => { if (status) status.textContent = ''; }, 2000);
+}
+
 function renderResidentDashboard() {
   const r = CURRENT_RESIDENT;
   const data = residentRadarData(r);
 
   document.getElementById('resident-header-info').textContent = `${r.name} · שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳ · Q2 2026`;
   document.getElementById('r-score').textContent = r.score != null ? r.score.toFixed(1) : '—';
+
+  // v2.9.15: actionable section — points to improve + goals from latest pd_approved + personal pad
+  try { _renderResidentActionable(r); } catch (e) { console.warn('Actionable render failed:', e); }
 
   // v2.9.12: Pending action banner — show if resident has any open eval requests
   // OR has a pending self-eval (final not approved yet) OR a draft to continue
@@ -5548,6 +5659,7 @@ async function approveMacro() {
   const screen = document.getElementById('screen-pd-macro');
   const visibleFeedback = document.getElementById('macro-pd-summary')?.value || '';
   const goals = document.getElementById('macro-pd-goals')?.value || '';
+  const improvePoints = document.getElementById('macro-pd-improve')?.value || '';
   const recommendation = document.getElementById('macro-pd-recommendation')?.value || '';
 
   // Gather per-competency PD notes + checkbox selections + edited scores
@@ -5607,6 +5719,7 @@ async function approveMacro() {
     competencyNotes: competencyNotes,
     includedComments: includedComments,
     goals: goals,
+    improvePoints: improvePoints,
     recommendation: recommendation,
   };
 
@@ -5640,6 +5753,7 @@ async function approveMacro() {
           competencyNotes: competencyNotes,
           includedComments: includedComments,
           goals: goals,
+          improvePoints: improvePoints,
           recommendation: recommendation,
         },
       }),
@@ -6175,6 +6289,9 @@ function renderMacroPdScreen() {
           <input type="text" id="macro-pd-final-score" value="${d.overallScore ? d.overallScore.toFixed(2) + ' / 5' : '—'}" ${isReadOnly ? 'disabled' : ''} class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 ${isReadOnly ? 'bg-gray-50' : 'bg-gray-50'}">
         </div>
       </div>
+
+      <label class="text-xs font-medium text-gray-700 mb-1 block">2 נקודות עיקריות לשיפור (יוצגו בדשבורד המתמחה)</label>
+      <textarea id="macro-pd-improve" ${isReadOnly ? 'disabled' : ''} class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 h-20 mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="1. ...&#10;2. ..."></textarea>
 
       <label class="text-xs font-medium text-gray-700 mb-1 block">יעדים לתקופה הבאה</label>
       <textarea id="macro-pd-goals" ${isReadOnly ? 'disabled' : ''} class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 h-20 mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500 ${isReadOnly ? 'bg-gray-50' : ''}" placeholder="יעדים מדידים..."></textarea>
