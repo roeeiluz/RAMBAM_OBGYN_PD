@@ -641,9 +641,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.9';
+const APP_VERSION = '2.9.10';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'מובייל: תפקיד ליד שם קצר. Label "טיוטת סיכום סופי" ל-PD macro drafts. Bug: 3 הערכות במקום 1 (drafts הוכפלו ב-DEMO_SEED). Bug: PD-approved נודד עכשיו לתיק מתמחה.';
+const APP_VERSION_NOTES = 'PD: ציון משוקלל סופי מתעדכן live כש-PD עורך ציוני קומפטנציה (override). Confirm dialog לפני "אשר ושלח למתמחה" (פעולה לא הפיכה).';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -5389,6 +5389,12 @@ async function approveMacro() {
   // Identify the resident being summarized (from PD's macro review screen)
   const residentId = window._currentMacroResidentId || CURRENT_RESIDENT?.id || 'unknown';
   const residentName = window._currentMacroResidentName || (CURRENT_RESIDENT ? 'ד"ר ' + CURRENT_RESIDENT.name : 'unknown');
+
+  // v2.9.10: confirm before final approval — irreversible action
+  const cleanName = (residentName || '').replace(/^ד"ר\s+/, '').trim() || 'המתמחה';
+  if (!confirm(`לאשר את הסיכום הסופי של ${cleanName}?\n\nההערכה תופיע בתיק המתמחה ותהיה גלויה למתמחה. לא ניתן לערוך לאחר אישור.`)) {
+    return;
+  }
   
   // Compute current quarter
   const now = new Date();
@@ -6051,6 +6057,8 @@ function renderMacroPdScreen() {
       </div>`}
     </div>
   `;
+  // v2.9.10: wire live updates of the weighted final score when PD edits comp scores
+  if (!isReadOnly) _wirePdScoreLiveUpdate();
 }
 
 function toggleAllAttendingComments() {
@@ -6074,6 +6082,31 @@ function toggleAllCompNotes() {
   const checkboxes = document.querySelectorAll('.comp-note-include');
   const allChecked = Array.from(checkboxes).every(cb => cb.checked);
   checkboxes.forEach(cb => cb.checked = !allChecked);
+}
+
+// v2.9.10: live-update the final weighted score from PD's per-competency edits.
+// Without this, the final score field stayed frozen at the seniors' average even
+// when PD overrode individual competency scores.
+function recomputePdFinalScore() {
+  const inputs = document.querySelectorAll('[data-comp-score]');
+  const vals = [];
+  inputs.forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v) && v > 0) vals.push(v);
+  });
+  const finalEl = document.getElementById('macro-pd-final-score');
+  if (!finalEl) return;
+  if (vals.length === 0) { finalEl.value = '—'; return; }
+  const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
+  finalEl.value = avg.toFixed(2) + ' / 5';
+}
+
+// Wire up live updates after the PD macro form renders
+function _wirePdScoreLiveUpdate() {
+  document.querySelectorAll('[data-comp-score]').forEach(inp => {
+    inp.addEventListener('input', recomputePdFinalScore);
+    inp.addEventListener('change', recomputePdFinalScore);
+  });
 }
 
 function gatherCompetencyNotes() {
