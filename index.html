@@ -382,7 +382,7 @@
     <!-- ===================================================== -->
     <section id="screen-pd-status" class="screen">
       <div class="mb-5">
-        <h1 class="text-lg font-semibold">סטטוס משובים</h1>
+        <h1 class="text-lg font-semibold">היסטוריית משובים והערכות</h1>
         <p class="text-xs text-gray-500 mt-0.5">מעקב אחרי הערכות במחלקה</p>
       </div>
 
@@ -598,6 +598,9 @@
     <!-- ===================================================== -->
     <section id="screen-eval-requests" class="screen"></section>
 
+    <!-- v2.9.14: Senior incoming requests — eval-requests + micro-requests directed to me -->
+    <section id="screen-senior-requests" class="screen"></section>
+
     <!-- ===================================================== -->
     <!-- SCREEN: Chief – reuses attending screens via aliases   -->
     <!-- ===================================================== -->
@@ -658,9 +661,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.13';
+const APP_VERSION = '2.9.14';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "שלב 1: rename הערכה מיידית/מהירה ⇐ משוב מהיר בכל מקום. מתמחה יכול לבקש משוב מהיר מבכיר/צ'יף — אריח חדש במסך משוב מהיר עצמי + modal לבחירת מעריך, הקשר אירוע, deadline והערות.";
+const APP_VERSION_NOTES = "שלבים 2-4: מסך 'בקשות משובים והערכותי' לבכיר; הסרת באנר מ-eval-status; rename ל'היסטוריית משובים והערכות' עם 5 chips (טיוטות תקופתי/מהיר/סגורות) + פילטר רבעון/טווח + 10 אחרונות; deadline lock לעדכון הערכה תקופתית עצמית ב-23:00 ביום היעד.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2420,7 +2423,7 @@ const NAV_BY_ROLE = {
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
     { id: 'attending-micro', label: 'משוב מהיר',  icon: '⚡' },
     { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
-    { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷', divider: true },
+    { id: 'eval-status',  label: 'היסטוריית משובים והערכות', icon: '◷', divider: true },
     { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
     { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'סיכום תקופתי (PD)', icon: '✎' },
@@ -2433,7 +2436,7 @@ const NAV_BY_ROLE = {
   ],
   coordinator: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
-    { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷' },
+    { id: 'eval-status',  label: 'היסטוריית משובים והערכות', icon: '◷' },
     { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
     { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'הערכות תקופתיות', icon: '◐' },
@@ -2444,16 +2447,18 @@ const NAV_BY_ROLE = {
   ],
   attending: [
     { id: 'attending-micro',      label: 'משוב מהיר',    icon: '⚡' },
+    { id: 'senior-requests',      label: 'בקשות משובים והערכותי', icon: '✉' },
     { id: 'attending-macro',      label: 'הערכה תקופתית',   icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
-    { id: 'eval-status',          label: 'סטטוס משובים',    icon: '◷' },
+    { id: 'eval-status',          label: 'היסטוריית משובים והערכות', icon: '◷' },
     { id: 'methodology',          label: 'מתודולוגיה',       icon: '📖', divider: true },
     { id: 'settings',             label: 'הגדרות',           icon: '⚙' },
   ],
   chief: [
     { id: 'chief-micro',      label: 'משוב מהיר',     icon: '⚡' },
+    { id: 'senior-requests',  label: 'בקשות משובים והערכותי', icon: '✉' },
     { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
-    { id: 'eval-status',      label: 'סטטוס משובים',     icon: '◷' },
+    { id: 'eval-status',      label: 'היסטוריית משובים והערכות', icon: '◷' },
     { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
     { id: 'chief-self',       label: 'הערכה תקופתית עצמית', icon: '◐' },
     { id: 'methodology',      label: 'מתודולוגיה',       icon: '📖', divider: true },
@@ -2895,6 +2900,7 @@ function renderScreen() {
   if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
   if (currentScreen === 'eval-status') renderEvalStatus();
   if (currentScreen === 'eval-requests') renderEvalRequests();
+  if (currentScreen === 'senior-requests') renderSeniorRequests();
 
   // Chief: reuses attending micro/history + has own self screens
   if (currentScreen === 'chief-micro')      renderMicroForm('chief');
@@ -4122,10 +4128,12 @@ function renderAttendingHistory(role) { renderEvalStatus(); }
 // Filter chips: הכל | טיוטות שלי | הערכות שהושלמו | הערכות עצמיות לדיון
 // "הצג ישנים יותר" button + date range picker
 // ═══════════════════════════════════════════════════════════════════
+// v2.9.14: chip values: 'all' | 'macro_drafts' | 'micro_drafts' | 'macro_closed' | 'micro_closed'
 let _evalStatusFilter = 'all';
-let _evalStatusShowAll = false; // false = 30 days, true = show everything
+let _evalStatusShowAll = false; // false = 10 latest, true = show all matching filter
 let _evalStatusDateFrom = null;
 let _evalStatusDateTo = null;
+let _evalStatusQuarter = ''; // empty = all quarters
 
 function renderEvalStatus() {
   const screenId = 'screen-eval-status';
@@ -4165,103 +4173,92 @@ function renderEvalStatus() {
     })
     .sort((a, b) => b._ts - a._ts);
 
-  // ── Date filtering ──
+  // ── Quarter filter (v2.9.14) ──
+  if (_evalStatusQuarter) {
+    items = items.filter(i => i.quarterId === _evalStatusQuarter);
+  }
+
+  // ── Date range filter (v2.9.14: only applies if date range explicitly set) ──
   if (_evalStatusDateFrom || _evalStatusDateTo) {
     const fromTs = _evalStatusDateFrom ? new Date(_evalStatusDateFrom).getTime() : 0;
     const toTs = _evalStatusDateTo ? new Date(_evalStatusDateTo).getTime() + 86400000 : Infinity;
     items = items.filter(i => i._ts >= fromTs && i._ts <= toTs);
-  } else if (!_evalStatusShowAll) {
-    items = items.filter(i => (now - i._ts) < thirtyDaysMs);
   }
 
-  // ── Chip counts (before chip filtering, after date filtering) ──
+  // ── Helper: classify each item into one of the 5 buckets ──
+  const isMacroDraft = (i) => i.type === 'macro' && i.isDraft;
+  const isMicroDraft = (i) => i.type === 'micro' && i.isDraft;
+  const isMacroClosed = (i) => i.type === 'macro' && !i.isDraft;
+  const isMicroClosed = (i) => i.type === 'micro' && !i.isDraft;
+
+  // ── Chip counts ──
   const countAll = items.length;
-  const countDrafts = items.filter(i => i.isDraft).length;
-  const countCompleted = items.filter(i => !i.isDraft && !i.isSelfAssessment).length;
-  const countSelf = items.filter(i => i.isSelfAssessment).length;
+  const countMacroDrafts = items.filter(isMacroDraft).length;
+  const countMicroDrafts = items.filter(isMicroDraft).length;
+  const countMacroClosed = items.filter(isMacroClosed).length;
+  const countMicroClosed = items.filter(isMicroClosed).length;
 
   // ── Apply chip filter ──
   let filtered = items;
-  if (_evalStatusFilter === 'drafts') filtered = items.filter(i => i.isDraft);
-  else if (_evalStatusFilter === 'completed') filtered = items.filter(i => !i.isDraft && !i.isSelfAssessment);
-  else if (_evalStatusFilter === 'self') filtered = items.filter(i => i.isSelfAssessment);
+  if (_evalStatusFilter === 'macro_drafts') filtered = items.filter(isMacroDraft);
+  else if (_evalStatusFilter === 'micro_drafts') filtered = items.filter(isMicroDraft);
+  else if (_evalStatusFilter === 'macro_closed') filtered = items.filter(isMacroClosed);
+  else if (_evalStatusFilter === 'micro_closed') filtered = items.filter(isMicroClosed);
 
-  // ── Check if there are items older than 30 days ──
-  const allMerged = merged.map(h => new Date(h.timestamp || h.date || 0).getTime());
-  const hasOlderItems = allMerged.some(ts => (now - ts) >= thirtyDaysMs);
+  // ── Default: show 10 latest matching filters; "Show all" expands ──
+  const totalMatching = filtered.length;
+  if (!_evalStatusShowAll) {
+    filtered = filtered.slice(0, 10);
+  }
+
+  // ── Build quarter list (unique quarterIds from all items, sorted desc) ──
+  const allQuarters = [...new Set(merged.map(h => h.quarterId).filter(Boolean))].sort((a,b) => b.localeCompare(a));
 
   screen.innerHTML = `
     <div class="mb-5">
-      <h1 class="text-lg font-semibold">סטטוס משובים</h1>
+      <h1 class="text-lg font-semibold">היסטוריית משובים והערכות</h1>
       <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'מעקב אחרי כל ההערכות במחלקה' : 'מעקב אחרי ההערכות שלי'}</p>
     </div>
 
-    <!-- ── Filter chips with counters ── -->
-    <div class="flex flex-wrap gap-2 mb-4">
+    <!-- v2.9.14: 5 filter chips -->
+    <div class="flex flex-wrap gap-2 mb-3">
       <button onclick="_setEvalFilter('all')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
         הכל <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}">${countAll}</span>
       </button>
-      <button onclick="_setEvalFilter('drafts')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'drafts' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
-        טיוטות שלי <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'drafts' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'}">${countDrafts}</span>
+      <button onclick="_setEvalFilter('macro_drafts')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'macro_drafts' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        טיוטות הערכה תקופתית <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'macro_drafts' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'}">${countMacroDrafts}</span>
       </button>
-      <button onclick="_setEvalFilter('completed')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'completed' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
-        הערכות שהושלמו <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'completed' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'}">${countCompleted}</span>
+      <button onclick="_setEvalFilter('micro_drafts')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'micro_drafts' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        טיוטות משובים מהירים <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'micro_drafts' ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'}">${countMicroDrafts}</span>
       </button>
-      <button onclick="_setEvalFilter('self')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'self' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
-        הערכות עצמיות <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'self' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}">${countSelf}</span>
+      <button onclick="_setEvalFilter('macro_closed')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'macro_closed' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        הערכה תקופתית סגורה <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'macro_closed' ? 'bg-purple-500 text-white' : 'bg-gray-200 text-gray-700'}">${countMacroClosed}</span>
+      </button>
+      <button onclick="_setEvalFilter('micro_closed')" class="px-3 py-1.5 rounded-full text-xs font-medium transition-all ${_evalStatusFilter === 'micro_closed' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+        משוב מהיר סגור <span class="inline-block ml-1 px-1.5 py-0.5 rounded-full text-xs ${_evalStatusFilter === 'micro_closed' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}">${countMicroClosed}</span>
       </button>
     </div>
 
-    <!-- ── Date range picker ── -->
-    <div class="flex flex-wrap items-center gap-2 mb-4">
-      <div class="flex items-center gap-1.5 text-xs text-gray-500">
-        <span>מתאריך:</span>
-        <input type="date" id="eval-date-from" value="${_evalStatusDateFrom || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
-        <span>עד:</span>
-        <input type="date" id="eval-date-to" value="${_evalStatusDateTo || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
-        ${(_evalStatusDateFrom || _evalStatusDateTo) ? '<button onclick="_clearEvalDateRange()" class="text-xs text-red-600 hover:underline">נקה</button>' : ''}
+    <!-- v2.9.14: Quarter OR date range filter -->
+    <div class="bg-white rounded-lg border border-gray-100 p-3 mb-4 flex flex-wrap items-center gap-3 text-xs">
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-500">רבעון:</span>
+        <select id="eval-quarter-select" onchange="_setEvalQuarter(this.value)" class="border border-gray-200 rounded px-2 py-1 text-xs">
+          <option value="" ${!_evalStatusQuarter ? 'selected' : ''}>כל הרבעונים</option>
+          ${allQuarters.map(q => `<option value="${q}" ${q === _evalStatusQuarter ? 'selected' : ''}>${q}</option>`).join('')}
+        </select>
       </div>
-      ${!_evalStatusShowAll && !_evalStatusDateFrom && !_evalStatusDateTo && hasOlderItems ? `
-        <button onclick="_showAllEvals()" class="text-xs text-blue-600 hover:underline mr-auto">הצג ישנים יותר ←</button>
-      ` : ''}
-      ${_evalStatusShowAll && !_evalStatusDateFrom && !_evalStatusDateTo ? `
-        <button onclick="_showRecentEvals()" class="text-xs text-blue-600 hover:underline mr-auto">הצג 30 ימים אחרונים בלבד</button>
-      ` : ''}
+      <div class="text-gray-300">|</div>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <span class="text-gray-500">או טווח:</span>
+        <input type="date" id="eval-date-from" value="${_evalStatusDateFrom || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
+        <span class="text-gray-400">עד</span>
+        <input type="date" id="eval-date-to" value="${_evalStatusDateTo || ''}" onchange="_setEvalDateRange()" class="border border-gray-200 rounded px-2 py-1 text-xs">
+        ${(_evalStatusDateFrom || _evalStatusDateTo || _evalStatusQuarter) ? '<button onclick="_clearEvalFilters()" class="text-xs text-red-600 hover:underline">נקה</button>' : ''}
+      </div>
     </div>
 
-    <!-- v2.9.12: Pending eval requests for this evaluator -->
-    ${(function() {
-      try {
-        const myId = currentUser?.id;
-        if (!myId) return '';
-        const reqs = _getEvalRequests().filter(req => req.status === 'open' && req.evaluatorIds.includes(myId));
-        const today = new Date().toISOString().slice(0,10);
-        const pending = reqs.filter(req => {
-          const completion = _evalRequestCompletionMap(req);
-          const myStatus = completion.find(c => c.evaluatorId === myId);
-          return myStatus && !myStatus.done;
-        });
-        if (pending.length === 0) return '';
-        return `
-          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
-            <div class="text-sm font-semibold text-amber-900 mb-2">📥 בקשות הערכה ממתינות (${pending.length})</div>
-            <div class="space-y-2">
-              ${pending.map(req => {
-                const isPast = req.deadline && req.deadline < today;
-                return `
-                  <div class="text-xs flex items-center gap-2 flex-wrap">
-                    <span class="font-medium">${req.residentName}</span>
-                    <span class="text-gray-500">· רבעון ${req.quarterId}</span>
-                    <span class="${isPast ? 'text-red-600 font-medium' : 'text-amber-700'}">· תאריך יעד: ${req.deadline}${isPast ? ' (פג!)' : ''}</span>
-                    <button onclick="navigateTo('attending-macro')" class="mr-auto text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">מלא הערכה ←</button>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `;
-      } catch (e) { return ''; }
-    })()}
+    <!-- v2.9.14: pending requests banner removed — moved to dedicated "בקשות משובים והערכותי" screen -->
 
     <!-- ── Evaluation list ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
@@ -4279,8 +4276,9 @@ function renderEvalStatus() {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-medium">${r.isSelfAssessment ? (r.categoryLabel || r.category || 'הערכה עצמית') : (r.residentName || '—')}</span>
-                  <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
+                  <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.type === 'macro' ? 'תקופתית' : 'משוב מהיר'}${r.isSelfAssessment ? ' · עצמית' : ''}</span>
                   ${r.isDraft ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">${r.type === 'macro' && r.mode === 'pd' ? 'טיוטת סיכום סופי' : 'טיוטא'}</span>` : ''}
+                  ${r.quarterId ? `<span class="text-xs text-gray-400">${r.quarterId}</span>` : ''}
                 </div>
                 <div class="text-xs text-gray-500 mt-0.5">${!r.isSelfAssessment && (r.categoryLabel || r.category) ? (r.categoryLabel || r.category) + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : r.daysAgo === 1 ? 'אתמול' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
@@ -4292,6 +4290,16 @@ function renderEvalStatus() {
             </div>
           `).join('')}
         </div>
+        ${totalMatching > 10 && !_evalStatusShowAll ? `
+          <div class="text-center mt-3 pt-3 border-t border-gray-100">
+            <button onclick="_showAllEvals()" class="text-xs text-blue-600 hover:underline">הצג את כל ${totalMatching} הרשומות</button>
+          </div>
+        ` : ''}
+        ${_evalStatusShowAll ? `
+          <div class="text-center mt-3 pt-3 border-t border-gray-100">
+            <button onclick="_showRecentEvals()" class="text-xs text-blue-600 hover:underline">הצג רק 10 אחרונות</button>
+          </div>
+        ` : ''}
       `}
     </div>
   `;
@@ -4315,14 +4323,24 @@ function _showRecentEvals() {
 function _setEvalDateRange() {
   _evalStatusDateFrom = document.getElementById('eval-date-from')?.value || null;
   _evalStatusDateTo = document.getElementById('eval-date-to')?.value || null;
+  _evalStatusQuarter = ''; // mutually exclusive with quarter
   renderEvalStatus();
 }
-function _clearEvalDateRange() {
+function _setEvalQuarter(q) {
+  _evalStatusQuarter = q || '';
+  // Quarter is mutually exclusive with date range
+  if (q) { _evalStatusDateFrom = null; _evalStatusDateTo = null; }
+  renderEvalStatus();
+}
+function _clearEvalFilters() {
   _evalStatusDateFrom = null;
   _evalStatusDateTo = null;
+  _evalStatusQuarter = '';
   _evalStatusShowAll = false;
   renderEvalStatus();
 }
+// Legacy alias
+function _clearEvalDateRange() { _clearEvalFilters(); }
 
 // ═══════════════════════════════════════════════════════════════════
 // PORTFOLIO: Personal resident file — all evaluations history
@@ -6541,6 +6559,130 @@ function _submitMicroRequest() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// v2.9.14: Senior incoming requests — show eval-requests + micro-requests
+// directed to the current user. Click → navigate to the right form.
+// ═══════════════════════════════════════════════════════════════════
+function renderSeniorRequests() {
+  const screen = document.getElementById('screen-senior-requests');
+  if (!screen) return;
+  const myId = currentUser?.id;
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Eval-requests directed to me + open
+  const macroReqs = _getEvalRequests().filter(r =>
+    r.status === 'open' && (r.evaluatorIds || []).includes(myId)
+  );
+  const macroPending = macroReqs.filter(r => {
+    const completion = _evalRequestCompletionMap(r);
+    const myStatus = completion.find(c => c.evaluatorId === myId);
+    return myStatus && !myStatus.done;
+  });
+  const macroDone = macroReqs.filter(r => {
+    const completion = _evalRequestCompletionMap(r);
+    const myStatus = completion.find(c => c.evaluatorId === myId);
+    return myStatus && myStatus.done;
+  });
+
+  // Micro-requests directed to me
+  const microReqs = _getMicroRequests().filter(r => r.status === 'open' && r.evaluatorId === myId);
+  const microPending = microReqs.filter(r => !_microRequestCompletion(r));
+  const microDone = microReqs.filter(r => _microRequestCompletion(r));
+
+  const fmtRel = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diffDays = Math.round((d.getTime() - Date.now()) / (24*60*60*1000));
+    if (diffDays < 0) return `<span class="text-red-600 font-medium">פג לפני ${-diffDays} ימים</span>`;
+    if (diffDays === 0) return '<span class="text-red-600 font-medium">היום</span>';
+    if (diffDays <= 3) return `<span class="text-amber-600">בעוד ${diffDays} ימים</span>`;
+    return `בעוד ${diffDays} ימים`;
+  };
+
+  const macroCard = (req) => `
+    <button onclick="_openMacroRequest('${req.id}')" class="w-full text-right bg-white rounded-lg border border-purple-200 hover:border-purple-400 hover:shadow-sm transition-all p-3">
+      <div class="flex items-center gap-2 flex-wrap mb-1">
+        <span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">הערכה תקופתית</span>
+        <span class="text-sm font-medium">${req.residentName}</span>
+        <span class="text-xs text-gray-500">· רבעון ${req.quarterId}</span>
+      </div>
+      <div class="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+        <span>תאריך יעד: ${req.deadline}</span>
+        <span>·</span>
+        <span>${fmtRel(req.deadline)}</span>
+        ${req.notes ? `<span>· <em>${req.notes}</em></span>` : ''}
+      </div>
+    </button>
+  `;
+  const microCard = (req) => `
+    <button onclick="_openMicroRequest('${req.id}')" class="w-full text-right bg-white rounded-lg border border-blue-200 hover:border-blue-400 hover:shadow-sm transition-all p-3">
+      <div class="flex items-center gap-2 flex-wrap mb-1">
+        <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">משוב מהיר</span>
+        <span class="text-sm font-medium">${req.residentName}</span>
+        ${req.eventLabel && req.eventId ? `<span class="text-xs text-gray-500">· ${req.eventLabel}</span>` : ''}
+      </div>
+      <div class="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+        <span>תאריך יעד: ${req.deadline}</span>
+        <span>·</span>
+        <span>${fmtRel(req.deadline)}</span>
+        ${req.notes ? `<span>· <em>${req.notes}</em></span>` : ''}
+      </div>
+    </button>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">בקשות משובים והערכותי</h1>
+      <p class="text-xs text-gray-500 mt-0.5">בקשות שהופנו אליך למילוי. לחיצה על בקשה תפתח את הטופס המתאים.</p>
+    </div>
+
+    <div class="mb-3">
+      <div class="text-xs font-medium text-gray-700 mb-2 uppercase">ממתינות (${macroPending.length + microPending.length})</div>
+      ${(macroPending.length + microPending.length) === 0 ? `
+        <div class="bg-white rounded-xl border border-gray-200 p-6 text-center">
+          <div class="text-3xl mb-2">✓</div>
+          <div class="text-sm text-gray-500">אין בקשות ממתינות. כל הבקשות שהופנו אליך טופלו.</div>
+        </div>
+      ` : `
+        <div class="space-y-2">
+          ${macroPending.map(macroCard).join('')}
+          ${microPending.map(microCard).join('')}
+        </div>
+      `}
+    </div>
+
+    ${(macroDone.length + microDone.length) > 0 ? `
+      <div class="mb-3">
+        <details>
+          <summary class="text-xs font-medium text-gray-500 mb-2 cursor-pointer hover:text-gray-700">
+            <span class="uppercase">הושלמו</span> (${macroDone.length + microDone.length}) ▾
+          </summary>
+          <div class="space-y-2 mt-2 opacity-60">
+            ${macroDone.map(macroCard).join('')}
+            ${microDone.map(microCard).join('')}
+          </div>
+        </details>
+      </div>
+    ` : ''}
+  `;
+}
+
+function _openMacroRequest(reqId) {
+  const req = _getEvalRequests().find(r => r.id === reqId);
+  if (!req) return;
+  // Pre-select the resident on the macro form via the global hint variable
+  CURRENT_MACRO_RESIDENT_NAME = req.residentName;
+  navigateTo('attending-macro');
+}
+
+function _openMicroRequest(reqId) {
+  const req = _getMicroRequests().find(r => r.id === reqId);
+  if (!req) return;
+  // Stash a hint so renderMicroForm can pre-fill resident + event
+  window._pendingMicroRequest = req;
+  navigateTo(currentRole === 'chief' ? 'chief-micro' : 'attending-micro');
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // v2.9.11: Resident/Chief macro landing — 4 tiles UI
 // (Open new / Load draft / Update submission / Archive)
 // State per quarter is derived from localStorage + DEMO_SEED_EVALUATIONS.
@@ -6552,14 +6694,34 @@ function _residentMacroState(mode) {
   const now = new Date();
   const q = Math.floor(now.getMonth() / 3) + 1;
   const quarterId = `${now.getFullYear()}-Q${q}`;
-  if (!userId) return { quarterId, hasDraft: false, hasFinal: false, hasApproved: false };
+  if (!userId) return { quarterId, hasDraft: false, hasFinal: false, hasApproved: false, deadlinePassed: false };
   const history = _getLocalHistory();
   const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
   const all = [...history, ...seedEvals];
   const draft = all.find(h => h.type === 'macro' && h.subType === 'draft' && h.residentId === userId && h.quarterId === quarterId);
   const final = all.find(h => h.type === 'macro' && h.subType === 'final' && h.residentId === userId && h.quarterId === quarterId && h.evaluatorRole === 'resident');
   const approved = all.find(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === userId && h.quarterId === quarterId);
-  return { quarterId, hasDraft: !!draft, hasFinal: !!final, hasApproved: !!approved, draft, final, approved };
+
+  // v2.9.14: deadline lock — if a PD/coordinator sent an eval-request for this resident's
+  // current quarter that included them as a "self-eval" target (we use the request's deadline
+  // as the editing deadline for the resident's self-eval), AND it's past 23:00 on that day,
+  // updates are blocked.
+  // Look up open eval-requests for this resident+quarter to derive a deadline.
+  let deadlinePassed = false;
+  let deadline = null;
+  try {
+    const reqs = _getEvalRequests().filter(r => r.status === 'open' && r.residentId === userId && r.quarterId === quarterId);
+    if (reqs.length > 0) {
+      // Use the latest deadline among requests
+      deadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop() || null;
+      if (deadline) {
+        const lockTs = new Date(deadline + 'T23:00:00').getTime();
+        deadlinePassed = Date.now() > lockTs;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  return { quarterId, hasDraft: !!draft, hasFinal: !!final, hasApproved: !!approved, draft, final, approved, deadline, deadlinePassed };
 }
 
 function _renderResidentMacroTiles(mode) {
@@ -6578,9 +6740,10 @@ function _renderResidentMacroTiles(mode) {
   const tile2Disabled = !s.hasDraft;
   const tile2Sub = s.hasDraft ? 'המשך/י מהמקום שעצרת' : 'אין טיוטה פתוחה לרבעון זה';
 
-  const tile3Disabled = !s.hasFinal || s.hasApproved;
+  const tile3Disabled = !s.hasFinal || s.hasApproved || s.deadlinePassed;
   const tile3Sub = s.hasApproved ? 'ההערכה אושרה — לא ניתן לעדכן' :
-                   s.hasFinal ? 'הוגשה הערכה — ניתן לעדכן עד לאישור PD' :
+                   s.deadlinePassed ? `נעול — תאריך היעד (${s.deadline}) חלף ב-23:00` :
+                   s.hasFinal ? `הוגשה הערכה — ניתן לעדכן עד ${s.deadline ? s.deadline + ' 23:00' : 'אישור PD'}` :
                    'יש להגיש הערכה תחילה';
 
   const tileBtn = (icon, title, sub, disabled, action) => `
@@ -6606,12 +6769,20 @@ function _renderResidentMacroTiles(mode) {
           <div class="text-xs text-green-700 mt-0.5">המנהלת אישרה את הסיכום. ניתן לראות בתיק האישי.</div>
         </div>
       </div>
+    ` : s.deadlinePassed ? `
+      <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+        <span class="text-xl">🔒</span>
+        <div class="flex-1">
+          <div class="text-sm font-medium text-red-900">חלון העדכון נסגר</div>
+          <div class="text-xs text-red-700 mt-0.5">תאריך היעד (${s.deadline}) חלף ב-23:00. ההערכה ננעלה ולא ניתנת לעדכון.</div>
+        </div>
+      </div>
     ` : s.hasFinal ? `
       <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
         <span class="text-xl">⏳</span>
         <div class="flex-1">
           <div class="text-sm font-medium text-amber-900">הערכה הוגשה — ממתינה לאישור PD</div>
-          <div class="text-xs text-amber-700 mt-0.5">ניתן לעדכן את ההערכה עד שה-PD יאשר.</div>
+          <div class="text-xs text-amber-700 mt-0.5">${s.deadline ? `ניתן לעדכן עד ${s.deadline} בשעה 23:00.` : 'ניתן לעדכן את ההערכה עד שה-PD יאשר.'}</div>
         </div>
       </div>
     ` : ''}
