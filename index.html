@@ -141,7 +141,7 @@
 <div id="top-bar" class="hidden role-banner sticky top-0 z-50 px-4 py-1.5 items-center gap-3 flex-wrap">
   <div class="text-xs text-amber-900 font-medium hidden md:block">פיילוט CBME</div>
   <div class="mr-auto text-xs text-amber-900 truncate">
-    <span class="md:hidden"><strong id="user-short-display"></strong></span>
+    <span class="md:hidden"><strong id="user-short-display"></strong> · <span id="user-short-role" class="opacity-80"></span></span>
     <span class="hidden md:inline">מחובר/ת: <strong id="user-email-display"></strong> · <span id="current-user-info"></span></span>
   </div>
   <button onclick="logout()" class="text-xs px-2.5 py-1 rounded-full bg-white text-amber-900 border border-amber-300 hover:bg-amber-50">התנתק/י</button>
@@ -641,9 +641,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.8';
+const APP_VERSION = '2.9.9';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'Mobile UX: top-bar מצומצם לשם קצר (email prefix), bottom-nav קיבל כפתור "עוד" שפותח sheet עם המתודולוגיה והגדרות.';
+const APP_VERSION_NOTES = 'מובייל: תפקיד ליד שם קצר. Label "טיוטת סיכום סופי" ל-PD macro drafts. Bug: 3 הערכות במקום 1 (drafts הוכפלו ב-DEMO_SEED). Bug: PD-approved נודד עכשיו לתיק מתמחה.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -899,6 +899,13 @@ async function submitEvaluation(evaluationData) {
         _devSeed: true,
       });
     } else if (evaluationData.type === 'macro') {
+      // v2.9.9: drafts live ONLY in localStorage (with replace-by-resident+quarter
+      // logic). Without this guard, every draft save pushed a new entry into
+      // DEMO_SEED_EVALUATIONS without dedup → eval-status showed 3 entries
+      // when localStorage had 1. See bug report 2026-05-08.
+      if (evaluationData.subType === 'draft') {
+        return { ok: true, data: { id: 'dev-' + Date.now() }, message: 'נשמר מקומית (dev mode)' };
+      }
       DEMO_SEED_EVALUATIONS.push({
         type: 'macro',
         timestamp: historyEntry.timestamp,
@@ -1357,6 +1364,9 @@ function showAppScreen() {
   if (userInfoEl) {
     userInfoEl.innerHTML = `${user.name} · ${roleObj ? roleObj.label : currentRole}`;
   }
+  // v2.9.9: also populate the short-role label shown next to short username on mobile
+  const shortRoleEl = document.getElementById('user-short-role');
+  if (shortRoleEl) shortRoleEl.textContent = roleObj ? roleObj.label : currentRole;
 
   // Load user settings (theme, notification preferences) and apply them
   loadUserSettings();
@@ -4158,7 +4168,7 @@ function renderEvalStatus() {
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-medium">${r.isSelfAssessment ? (r.categoryLabel || r.category || 'הערכה עצמית') : (r.residentName || '—')}</span>
                   <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.typeLabel}</span>
-                  ${r.isDraft ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">טיוטא</span>' : ''}
+                  ${r.isDraft ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">${r.type === 'macro' && r.mode === 'pd' ? 'טיוטת סיכום סופי' : 'טיוטא'}</span>` : ''}
                 </div>
                 <div class="text-xs text-gray-500 mt-0.5">${!r.isSelfAssessment && (r.categoryLabel || r.category) ? (r.categoryLabel || r.category) + ' · ' : ''}${r.daysAgo === 0 ? 'היום' : r.daysAgo === 1 ? 'אתמול' : 'לפני ' + r.daysAgo + ' ימים'}</div>
               </div>
@@ -5419,6 +5429,52 @@ async function approveMacro() {
 
   showToast('מאשר ושולח למתמחה...', 'info');
 
+  // v2.9.9: Build the approved-summary entry. This must land in localStorage
+  // (and DEMO_SEED_EVALUATIONS in dev) so renderPortfolio can pick it up
+  // for the resident. Without this, "approve" produced no visible artifact
+  // in the resident portfolio.
+  const approvedEntry = {
+    type: 'macro',
+    subType: 'pd_approved',
+    quarterId: quarterId,
+    residentId: residentId,
+    residentName: residentName,
+    evaluatorId: currentUser?.id || 'pd',
+    evaluatorName: currentUser?.name || 'PD',
+    evaluatorEmail: currentUserEmail || '',
+    evaluatorRole: 'pd',
+    timestamp: new Date().toISOString(),
+    date: new Date().toISOString(),
+    competencies: Object.fromEntries(ACGME_COMPETENCIES.map(c => [
+      c.key,
+      {
+        score: pdScores[c.key] != null ? pdScores[c.key] : (competencyNotes[c.key]?.pdScore || null),
+        comment: competencyNotes[c.key]?.text || ''
+      }
+    ])),
+    scores: pdScores,
+    visibleFeedback: combinedFeedback,
+    privateNote: privateNote,
+    competencyNotes: competencyNotes,
+    includedComments: includedComments,
+    goals: goals,
+    recommendation: recommendation,
+  };
+
+  // ── DEV MODE: save locally only ──
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    try {
+      _saveToLocalHistory({ ...approvedEntry, _devSeed: true });
+      DEMO_SEED_EVALUATIONS.push({ ...approvedEntry, _devSeed: true });
+      showToast('✅ הסיכום אושר ונשלח למתמחה (dev)', 'success');
+      logToAudit('approve_macro_summary', { residentId, quarterId, dev: true });
+    } catch (e) {
+      console.error('Approve macro (dev) error:', e);
+      showToast('שגיאה בשמירה מקומית', 'error');
+    }
+    return;
+  }
+
   try {
     const res = await fetch(WEB_APP_URL, {
       method: 'POST',
@@ -5440,8 +5496,10 @@ async function approveMacro() {
       }),
     });
     const result = await res.json();
-    
+
     if (result && result.ok) {
+      // Mirror to local history so the portfolio surfaces it immediately
+      try { _saveToLocalHistory(approvedEntry); } catch (e) { /* ignore */ }
       showToast('✅ הסיכום אושר ונשלח למתמחה', 'success');
       logToAudit('approve_macro_summary', { residentId, quarterId });
     } else {
