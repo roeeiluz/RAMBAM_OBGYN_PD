@@ -663,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.17';
+const APP_VERSION = '2.9.18';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "מסך הערכה תקופתית עצמית: אריחים 2x2 גם במובייל (במקום stack של 4) + padding מצומצם + כותרת ובאנר קומפקטיים — כדי שהכל ייכנס למסך אחד בלי גלילה. מדריך מהיר נכתב מחדש: משפט הסבר + דוגמה אחת לכל אחת מ-6 קומפטנציות ACGME.";
+const APP_VERSION_NOTES = "המדריך המהיר במסך ההערכה התקופתית — משולב: סולם 1-5, 6 קומפטנציות ACGME עם משפט+דוגמה לכל אחת, איך למלא נכון (4 נקודות + SMART), טיפ על auto-save, ולינק למתודולוגיה. גלילה לאחר הרחבה זה בסדר.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6903,7 +6903,7 @@ function _renderResidentMacroTiles(mode) {
       ${tileBtn('📚', 'ארכיון', 'הערכות שאושרו ברבעונים קודמים', false, `_residentMacroOpen('${mode}', 'archive')`)}
     </div>
 
-    <!-- v2.9.17: compact quick guide — one sentence + example per ACGME competency -->
+    <!-- v2.9.18: combined quick guide — scale + 6 ACGME (sentence+example each) + how-to-fill + SMART -->
     <details class="bg-white rounded-xl border border-gray-200">
       <summary class="px-3 py-2.5 cursor-pointer hover:bg-gray-50 rounded-xl flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
@@ -6912,18 +6912,49 @@ function _renderResidentMacroTiles(mode) {
         </div>
         <span class="text-gray-400 text-xs">▾</span>
       </summary>
-      <div class="px-3 pb-3 border-t border-gray-100 pt-2.5">
-        <p class="text-xs text-gray-600 mb-2 leading-snug">דרג כל פריט מ-<strong>1</strong> (זקוק/ה לפיקוח) עד <strong>5</strong> (עצמאי/ת לחלוטין). הוסף/י דוגמה אמיתית.</p>
-        <div class="space-y-1.5 text-[11px] leading-snug">
-          <div><strong class="text-blue-700">PC — Patient Care:</strong> יכולת טיפול במטופלות. <span class="text-gray-500"><em>למשל: ביצעתי 3 לידות ואקום עצמאיות.</em></span></div>
-          <div><strong class="text-blue-700">MK — Medical Knowledge:</strong> ידע רפואי קליני ותיאורטי. <span class="text-gray-500"><em>למשל: סיימתי פרק על הפרעות שליה והשתמשתי במשמרת.</em></span></div>
-          <div><strong class="text-blue-700">ICS — Communication:</strong> תקשורת עם מטופלות וצוות. <span class="text-gray-500"><em>למשל: הסברתי למשפחה תוצאה רגישה לאחר ניתוח.</em></span></div>
-          <div><strong class="text-blue-700">PROF — Professionalism:</strong> אחריות, אתיקה, יחס מקצועי. <span class="text-gray-500"><em>למשל: השלמתי תורנויות מלאות והגעתי בזמן.</em></span></div>
-          <div><strong class="text-blue-700">PBLI — Learning:</strong> למידה ושיפור עצמי. <span class="text-gray-500"><em>למשל: אחרי מקרה מורכב קראתי הנחיות עדכניות.</em></span></div>
-          <div><strong class="text-blue-700">SBP — Systems:</strong> עבודה במערכת הבריאות. <span class="text-gray-500"><em>למשל: תיאמתי בין סיעוד לרופא בקבלה דחופה.</em></span></div>
+      <div class="px-3 pb-3 border-t border-gray-100 pt-2.5 space-y-3">
+
+        <!-- Goal of the eval -->
+        <div class="text-xs text-gray-700 leading-relaxed">
+          <strong>המטרה:</strong> הערכה עצמית כנה של ההתקדמות שלך לפי 6 קומפטנציות ACGME.
         </div>
-        <p class="text-[11px] text-gray-500 mt-2"><strong>טיפ:</strong> הטיוטה נשמרת אוטומטית גם בלי "שמור".</p>
-        <div class="pt-2 border-t border-gray-100 mt-2">
+
+        <!-- 1-5 scale -->
+        <div class="text-xs text-gray-700 leading-relaxed">
+          <strong>סולם 1-5:</strong> <strong>1</strong> = זקוק/ה לפיקוח מלא · <strong>3</strong> = עצמאי/ת ברוב המקרים · <strong>5</strong> = עצמאי/ת לחלוטין ויכול/ה ללמד אחרים.
+        </div>
+
+        <!-- 6 ACGME competencies — sentence + example each -->
+        <div>
+          <div class="text-xs font-semibold text-gray-700 mb-1.5">6 הקומפטנציות:</div>
+          <div class="space-y-1.5 text-[11px] leading-snug">
+            <div><strong class="text-blue-700">PC — Patient Care:</strong> יכולת טיפול במטופלות. <span class="text-gray-500"><em>למשל: ביצעתי 3 לידות ואקום עצמאיות.</em></span></div>
+            <div><strong class="text-blue-700">MK — Medical Knowledge:</strong> ידע רפואי קליני ותיאורטי. <span class="text-gray-500"><em>למשל: סיימתי פרק על הפרעות שליה והשתמשתי במשמרת.</em></span></div>
+            <div><strong class="text-blue-700">ICS — Communication:</strong> תקשורת עם מטופלות וצוות. <span class="text-gray-500"><em>למשל: הסברתי למשפחה תוצאה רגישה לאחר ניתוח.</em></span></div>
+            <div><strong class="text-blue-700">PROF — Professionalism:</strong> אחריות, אתיקה, יחס מקצועי. <span class="text-gray-500"><em>למשל: השלמתי תורנויות מלאות והגעתי בזמן.</em></span></div>
+            <div><strong class="text-blue-700">PBLI — Learning:</strong> למידה ושיפור עצמי. <span class="text-gray-500"><em>למשל: אחרי מקרה מורכב קראתי הנחיות עדכניות.</em></span></div>
+            <div><strong class="text-blue-700">SBP — Systems:</strong> עבודה במערכת הבריאות. <span class="text-gray-500"><em>למשל: תיאמתי בין סיעוד לרופא בקבלה דחופה.</em></span></div>
+          </div>
+        </div>
+
+        <!-- How to fill correctly -->
+        <div>
+          <div class="text-xs font-semibold text-gray-700 mb-1">איך למלא נכון:</div>
+          <ul class="list-disc pr-5 space-y-0.5 text-[11px] text-gray-700 leading-snug">
+            <li>בחר/י ציון לכל פריט מתחת לקומפטנציה — בהתבסס על מקרים אמיתיים מהרבעון.</li>
+            <li>הוסף/י דוגמה ספציפית ב-1-2 משפטים בהערה לקומפטנציה.</li>
+            <li><strong>2 נקודות חוזק</strong> שלך + <strong>2 תחומים</strong> שאת/ה רוצה לשפר.</li>
+            <li>יעדים ל-6 חודשים הבאים — מדידים (<strong>SMART</strong>), למשל: <em>"לבצע 10 לפרוסקופיות עצמאיות עד סוף Q3"</em>.</li>
+          </ul>
+        </div>
+
+        <!-- Tip -->
+        <div class="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+          <strong>טיפ:</strong> הטיוטה נשמרת אוטומטית גם בלי "שמור". תוכל/י לחזור ולהמשיך בכל שלב לפני שליחה סופית.
+        </div>
+
+        <!-- Link to methodology -->
+        <div>
           <button onclick="navigateTo('methodology')" class="text-[11px] text-blue-600 hover:underline font-medium">לפירוט מלא → דף המתודולוגיה</button>
         </div>
       </div>
