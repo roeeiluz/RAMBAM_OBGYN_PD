@@ -411,6 +411,9 @@
         <span class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full">תחילת פיילוט</span>
       </div>
 
+      <!-- v2.9.12: Pending action banner — populated by renderResidentDashboard if there's a pending eval request -->
+      <div id="resident-pending-banner"></div>
+
       <div class="grid grid-cols-3 gap-3 mb-4">
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">ציון Q2</div><div class="text-2xl font-medium mt-1" id="r-score">—</div></div>
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">הערכות</div><div class="text-2xl font-medium mt-1" id="r-eval-count">0</div></div>
@@ -582,6 +585,12 @@
     <section id="screen-chief-self" class="screen macro-screen"></section>
 
     <!-- ===================================================== -->
+    <!-- SCREEN: Eval Requests (PD/Coordinator distribution)    -->
+    <!-- v2.9.12: Send requests to evaluators with deadline     -->
+    <!-- ===================================================== -->
+    <section id="screen-eval-requests" class="screen"></section>
+
+    <!-- ===================================================== -->
     <!-- SCREEN: Chief – reuses attending screens via aliases   -->
     <!-- ===================================================== -->
     <section id="screen-chief-micro" class="screen"></section>
@@ -641,9 +650,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.10';
+const APP_VERSION = '2.9.12';
 const APP_VERSION_DATE = '8.5.2026';
-const APP_VERSION_NOTES = 'PD: ציון משוקלל סופי מתעדכן live כש-PD עורך ציוני קומפטנציה (override). Confirm dialog לפני "אשר ושלח למתמחה" (פעולה לא הפיכה).';
+const APP_VERSION_NOTES = 'Resident/Chief: 4-tile UI להערכה תקופתית + מדריך מהיר. Distribution: PD/רכזת שולחים בקשות הערכה למספר מעריכים עם תאריך יעד (מסך חדש "בקשות הערכה"). Dashboard מתמחה: באנר "פעולות נדרשות". Eval-status: בקשות ממתינות למעריך.';
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -1610,6 +1619,17 @@ function _saveToLocalHistory(entry) {
       const idx = history.findIndex(h => h.subType === 'draft' && h.residentId === entry.residentId && h.quarterId === entry.quarterId && h.type === entry.type);
       if (idx >= 0) history.splice(idx, 1);
     }
+    // v2.9.11: For finals — replace previous final from same evaluator on same resident+quarter
+    // (allows resident to update self-eval before PD approves; allows seniors to correct mistakes)
+    if (entry.subType === 'final' && entry.evaluatorId) {
+      const idx = history.findIndex(h => h.subType === 'final' && h.evaluatorId === entry.evaluatorId && h.residentId === entry.residentId && h.quarterId === entry.quarterId && h.type === entry.type);
+      if (idx >= 0) history.splice(idx, 1);
+    }
+    // v2.9.11: For pd_approved — replace previous PD approval on same resident+quarter
+    if (entry.subType === 'pd_approved') {
+      const idx = history.findIndex(h => h.subType === 'pd_approved' && h.residentId === entry.residentId && h.quarterId === entry.quarterId && h.type === entry.type);
+      if (idx >= 0) history.splice(idx, 1);
+    }
     history.unshift(entry);
     if (history.length > LOCAL_HISTORY_MAX) history.length = LOCAL_HISTORY_MAX;
     localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(history));
@@ -2393,6 +2413,7 @@ const NAV_BY_ROLE = {
     { id: 'attending-micro', label: 'הערכה מיידית',  icon: '⚡' },
     { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
     { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷', divider: true },
+    { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
     { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'סיכום תקופתי (PD)', icon: '✎' },
     { id: 'pd-cross',     label: 'חתך רוחבי',     icon: '⊞' },
@@ -2405,6 +2426,7 @@ const NAV_BY_ROLE = {
   coordinator: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
     { id: 'eval-status',  label: 'סטטוס משובים',  icon: '◷' },
+    { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
     { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'הערכות תקופתיות', icon: '◐' },
     { id: 'pd-data',      label: 'ניהול נתונים',  icon: '⤒' },
@@ -2669,6 +2691,10 @@ function navigateTo(screenId) {
   if (macroScreens.includes(currentScreen) && screenId !== currentScreen) {
     _autoSaveMacroDraftOnExit();
   }
+  // v2.9.11: when entering resident-self / chief-self fresh from elsewhere, reset to tiles view
+  if ((screenId === 'resident-self' || screenId === 'chief-self') && currentScreen !== screenId) {
+    _residentMacroSubview = 'tiles';
+  }
 
   currentScreen = screenId;
   buildSidebar();
@@ -2848,19 +2874,30 @@ function renderScreen() {
 
   if (currentScreen === 'resident-dashboard') renderResidentDashboard();
   if (currentScreen === 'resident-approved') renderApproved();
-  if (currentScreen === 'resident-self') renderMacroFormScreen('resident');
+  if (currentScreen === 'resident-self') {
+    // v2.9.11: 4-tile landing for resident macro eval; subview switches to 'form' or 'archive' on tile click
+    if (_residentMacroSubview === 'archive') _renderResidentMacroArchive('resident');
+    else if (_residentMacroSubview === 'form') renderMacroFormScreen('resident');
+    else _renderResidentMacroTiles('resident');
+  }
   if (currentScreen === 'resident-self-micro') renderSelfMicroForm();
 
   if (currentScreen === 'attending-micro') renderMicroForm();
   if (currentScreen === 'attending-macro') renderMacroFormScreen('attending');
   if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
   if (currentScreen === 'eval-status') renderEvalStatus();
+  if (currentScreen === 'eval-requests') renderEvalRequests();
 
   // Chief: reuses attending micro/history + has own self screens
   if (currentScreen === 'chief-micro')      renderMicroForm('chief');
   if (currentScreen === 'chief-history')    renderEvalStatus(); // legacy alias
   if (currentScreen === 'chief-self-micro') renderSelfMicroForm('chief');
-  if (currentScreen === 'chief-self')       renderMacroFormScreen('chief');
+  if (currentScreen === 'chief-self') {
+    // v2.9.11: same 4-tile landing for chief macro eval
+    if (_residentMacroSubview === 'archive') _renderResidentMacroArchive('chief');
+    else if (_residentMacroSubview === 'form') renderMacroFormScreen('chief');
+    else _renderResidentMacroTiles('chief');
+  }
 
   // Portfolio screens
   if (currentScreen === 'pd-portfolio')       renderPortfolio('pd');
@@ -3384,6 +3421,39 @@ function renderResidentDashboard() {
 
   document.getElementById('resident-header-info').textContent = `${r.name} · שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳ · Q2 2026`;
   document.getElementById('r-score').textContent = r.score != null ? r.score.toFixed(1) : '—';
+
+  // v2.9.12: Pending action banner — show if resident has any open eval requests
+  // OR has a pending self-eval (final not approved yet) OR a draft to continue
+  try {
+    const banner = document.getElementById('resident-pending-banner');
+    if (banner) {
+      const reqs = _getEvalRequests().filter(req => req.residentId === r.id && req.status === 'open');
+      const state = _residentMacroState('resident');
+      const today = new Date().toISOString().slice(0, 10);
+      const parts = [];
+      reqs.forEach(req => {
+        const completion = _evalRequestCompletionMap(req);
+        const allDone = completion.every(c => c.done);
+        if (!allDone) {
+          const isPast = req.deadline && req.deadline < today;
+          parts.push(`<div class="text-xs ${isPast ? 'text-red-700' : 'text-amber-800'}">📥 בקשת הערכה תקופתית (${req.quarterId}) — תאריך יעד: ${req.deadline}${isPast ? ' (פג!)' : ''}</div>`);
+        }
+      });
+      if (state.hasDraft) {
+        parts.push(`<div class="text-xs text-amber-800">📝 יש לך טיוטה פתוחה ל-${state.quarterId} — <a href="#" onclick="event.preventDefault(); navigateTo('resident-self'); _residentMacroOpen('resident','draft')" class="underline">המשך</a></div>`);
+      }
+      if (state.hasFinal && !state.hasApproved) {
+        parts.push(`<div class="text-xs text-amber-800">⏳ הערכה עצמית הוגשה ל-${state.quarterId}, ממתינה לאישור PD</div>`);
+      }
+      banner.innerHTML = parts.length === 0 ? '' : `
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <div class="text-sm font-semibold text-amber-900 mb-2">פעולות נדרשות</div>
+          <div class="space-y-1.5">${parts.join('')}</div>
+          <div class="mt-2"><button onclick="navigateTo('resident-self')" class="text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">פתח הערכה תקופתית ←</button></div>
+        </div>
+      `;
+    }
+  } catch (e) { console.warn('Pending banner error:', e); }
 
   // KPI: evaluation count for this resident (from localStorage)
   try {
@@ -4150,6 +4220,40 @@ function renderEvalStatus() {
         <button onclick="_showRecentEvals()" class="text-xs text-blue-600 hover:underline mr-auto">הצג 30 ימים אחרונים בלבד</button>
       ` : ''}
     </div>
+
+    <!-- v2.9.12: Pending eval requests for this evaluator -->
+    ${(function() {
+      try {
+        const myId = currentUser?.id;
+        if (!myId) return '';
+        const reqs = _getEvalRequests().filter(req => req.status === 'open' && req.evaluatorIds.includes(myId));
+        const today = new Date().toISOString().slice(0,10);
+        const pending = reqs.filter(req => {
+          const completion = _evalRequestCompletionMap(req);
+          const myStatus = completion.find(c => c.evaluatorId === myId);
+          return myStatus && !myStatus.done;
+        });
+        if (pending.length === 0) return '';
+        return `
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+            <div class="text-sm font-semibold text-amber-900 mb-2">📥 בקשות הערכה ממתינות (${pending.length})</div>
+            <div class="space-y-2">
+              ${pending.map(req => {
+                const isPast = req.deadline && req.deadline < today;
+                return `
+                  <div class="text-xs flex items-center gap-2 flex-wrap">
+                    <span class="font-medium">${req.residentName}</span>
+                    <span class="text-gray-500">· רבעון ${req.quarterId}</span>
+                    <span class="${isPast ? 'text-red-600 font-medium' : 'text-amber-700'}">· תאריך יעד: ${req.deadline}${isPast ? ' (פג!)' : ''}</span>
+                    <button onclick="navigateTo('attending-macro')" class="mr-auto text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">מלא הערכה ←</button>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      } catch (e) { return ''; }
+    })()}
 
     <!-- ── Evaluation list ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
@@ -5374,6 +5478,11 @@ async function _submitMacro(subType, mode) {
         clearDraft(window._currentMacroFormId);
       }
       logToAudit('submit_macro_eval', { residentId, subType, quarterId });
+      // v2.9.11: after final submit by resident/chief — return to tile landing
+      if (subType === 'final' && (mode === 'resident' || mode === 'chief')) {
+        _residentMacroSubview = 'tiles';
+        setTimeout(() => _renderResidentMacroTiles(mode), 1500);
+      }
       // Note: submitEvaluation dev path already saves to localStorage + DEMO_SEED
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
@@ -6084,7 +6193,401 @@ function toggleAllCompNotes() {
   checkboxes.forEach(cb => cb.checked = !allChecked);
 }
 
-// v2.9.10: live-update the final weighted score from PD's per-competency edits.
+// ═══════════════════════════════════════════════════════════════════
+// v2.9.12: Eval Requests — distribution mechanism for PD/Coordinator
+// PD/Coordinator sends requests to evaluators with deadline.
+// Requests stored in localStorage (cbme_eval_requests) and mirrored
+// to Drive in production via backend action `submit_eval_request`.
+// See BACKEND_NOTES.md for the Code.gs additions needed.
+// ═══════════════════════════════════════════════════════════════════
+const EVAL_REQUESTS_KEY = 'cbme_eval_requests';
+
+function _getEvalRequests() {
+  try { return JSON.parse(localStorage.getItem(EVAL_REQUESTS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function _saveEvalRequests(arr) {
+  try { localStorage.setItem(EVAL_REQUESTS_KEY, JSON.stringify(arr)); }
+  catch (e) { console.warn('Eval requests save failed:', e); }
+}
+
+// Compute completion status per request: which evaluators submitted a final macro
+// for the request's resident+quarter. Used for UI status.
+function _evalRequestCompletionMap(req) {
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [..._getLocalHistory(), ...seedEvals];
+  const finals = all.filter(e =>
+    e.type === 'macro' && e.subType === 'final' &&
+    e.residentId === req.residentId && e.quarterId === req.quarterId
+  );
+  const done = new Set(finals.map(f => f.evaluatorId));
+  return req.evaluatorIds.map(id => ({ evaluatorId: id, done: done.has(id) }));
+}
+
+function renderEvalRequests() {
+  const screen = document.getElementById('screen-eval-requests');
+  if (!screen) return;
+  const requests = _getEvalRequests().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const fmtRel = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diffDays = Math.round((d.getTime() - Date.now()) / (24*60*60*1000));
+    if (diffDays < 0) return `<span class="text-red-600">פג לפני ${-diffDays} ימים</span>`;
+    if (diffDays === 0) return '<span class="text-red-600 font-medium">היום</span>';
+    if (diffDays <= 3) return `<span class="text-amber-600">בעוד ${diffDays} ימים</span>`;
+    return `בעוד ${diffDays} ימים`;
+  };
+
+  screen.innerHTML = `
+    <div class="mb-5 flex items-start justify-between gap-3 flex-wrap">
+      <div>
+        <h1 class="text-lg font-semibold">בקשות הערכה תקופתית</h1>
+        <p class="text-xs text-gray-500 mt-0.5">שלח/י בקשות לרופאים בכירים למילוי הערכה למתמחה ספציפי עד תאריך יעד</p>
+      </div>
+      <button onclick="_openEvalRequestModal()" class="text-sm px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">+ בקשה חדשה</button>
+    </div>
+
+    ${requests.length === 0 ? `
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <div class="text-4xl mb-2">✉</div>
+        <div class="text-sm font-medium text-gray-900 mb-1">אין בקשות פתוחות</div>
+        <div class="text-xs text-gray-500">לחץ/י על "בקשה חדשה" כדי לפתוח את הבקשה הראשונה</div>
+      </div>
+    ` : `
+      <div class="space-y-3">
+        ${requests.map(req => {
+          const completion = _evalRequestCompletionMap(req);
+          const doneCount = completion.filter(c => c.done).length;
+          const totalCount = completion.length;
+          const allDone = doneCount === totalCount;
+          const pastDeadline = req.deadline && req.deadline < today;
+          return `
+            <div class="bg-white rounded-xl border ${allDone ? 'border-green-200 bg-green-50/30' : pastDeadline ? 'border-red-200 bg-red-50/30' : 'border-gray-200'} p-4">
+              <div class="flex items-start justify-between gap-3 flex-wrap mb-2">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium">${req.residentName} · רבעון ${req.quarterId}</div>
+                  <div class="text-xs text-gray-500 mt-0.5">תאריך יעד: ${req.deadline || '—'} · ${fmtRel(req.deadline)}</div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-xs ${allDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'} px-2 py-0.5 rounded-full font-medium">${doneCount}/${totalCount} הוגשו</span>
+                  ${!allDone ? `<button onclick="_cancelEvalRequest('${req.id}')" class="text-xs text-red-600 hover:underline">בטל</button>` : ''}
+                </div>
+              </div>
+              <div class="space-y-1 mt-2">
+                ${completion.map((c, i) => `
+                  <div class="text-xs flex items-center gap-2 py-0.5">
+                    <span class="${c.done ? 'text-green-700' : 'text-gray-400'}">${c.done ? '✓' : '○'}</span>
+                    <span class="${c.done ? 'text-gray-700' : 'text-gray-500'}">${req.evaluatorNames[i] || c.evaluatorId}</span>
+                    ${c.done ? '<span class="text-xs text-green-600">— הוגש</span>' : '<span class="text-xs text-gray-400">— ממתין</span>'}
+                  </div>
+                `).join('')}
+              </div>
+              ${req.notes ? `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100"><strong>הערות:</strong> ${req.notes}</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+}
+
+function _openEvalRequestModal() {
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  const currentQ = `${now.getFullYear()}-Q${q}`;
+  const defaultDeadline = new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0, 10);
+  // List all attendings + chiefs as potential evaluators
+  const allAttendings = [...(STAFF.attending || []), ...(STAFF.chief || []), ...(STAFF.pd || [])]
+    .filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i); // dedup
+
+  const html = `
+    <div id="eval-req-modal-bg" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" onclick="if(event.target===this) _closeEvalRequestModal()">
+      <div class="bg-white rounded-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">בקשת הערכה חדשה</h2>
+          <button onclick="_closeEvalRequestModal()" class="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">מתמחה</label>
+            <select id="er-resident" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+              ${RESIDENTS.map(r => `<option value="${r.id}|${r.name}">${r.name} (PGY ${r.pgy})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">רבעון</label>
+            <input type="text" id="er-quarter" value="${currentQ}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="YYYY-QN">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">מעריכים (סמן/י את הרצויים)</label>
+            <div class="border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto">
+              ${allAttendings.map(a => `
+                <label class="flex items-center gap-2 py-1 text-xs cursor-pointer hover:bg-gray-50 px-1 rounded">
+                  <input type="checkbox" class="er-evaluator rounded" data-id="${a.id}" data-name="${a.name}">
+                  <span>${a.name}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">תאריך יעד</label>
+            <input type="date" id="er-deadline" value="${defaultDeadline}" min="${now.toISOString().slice(0,10)}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">הערות (אופציונלי)</label>
+            <textarea id="er-notes" rows="2" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="לדוגמה: דגש על אינטראקציה עם מטופלות בחדר ניתוח"></textarea>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="_closeEvalRequestModal()" class="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">ביטול</button>
+          <button onclick="_submitEvalRequest()" class="flex-1 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">שלח בקשה</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+}
+
+function _closeEvalRequestModal() {
+  const m = document.getElementById('eval-req-modal-bg');
+  if (m) m.remove();
+}
+
+function _submitEvalRequest() {
+  const residentVal = document.getElementById('er-resident').value;
+  const [residentId, residentName] = residentVal.split('|');
+  const quarterId = document.getElementById('er-quarter').value.trim();
+  const deadline = document.getElementById('er-deadline').value;
+  const notes = document.getElementById('er-notes').value.trim();
+  const evaluatorEls = Array.from(document.querySelectorAll('.er-evaluator:checked'));
+  if (evaluatorEls.length === 0) { showToast('יש לבחור לפחות מעריך אחד', 'error'); return; }
+  if (!quarterId) { showToast('יש לציין רבעון', 'error'); return; }
+  if (!deadline) { showToast('יש לציין תאריך יעד', 'error'); return; }
+
+  const req = {
+    id: 'req_' + Date.now(),
+    type: 'macro_request',
+    quarterId, residentId, residentName,
+    requesterId: currentUser?.id || 'unknown',
+    requesterName: currentUser?.name || '',
+    evaluatorIds: evaluatorEls.map(e => e.dataset.id),
+    evaluatorNames: evaluatorEls.map(e => e.dataset.name),
+    deadline, notes,
+    createdAt: new Date().toISOString(),
+    status: 'open',
+  };
+  const all = _getEvalRequests();
+  all.push(req);
+  _saveEvalRequests(all);
+  // TODO production: POST to backend action `submit_eval_request` (see BACKEND_NOTES.md)
+  logToAudit('eval_request_created', { residentId, quarterId, evaluatorCount: req.evaluatorIds.length });
+  showToast('✅ בקשת הערכה נשלחה', 'success');
+  _closeEvalRequestModal();
+  renderEvalRequests();
+}
+
+function _cancelEvalRequest(reqId) {
+  if (!confirm('לבטל את הבקשה?')) return;
+  const all = _getEvalRequests().filter(r => r.id !== reqId);
+  _saveEvalRequests(all);
+  logToAudit('eval_request_cancelled', { reqId });
+  showToast('הבקשה בוטלה', 'info');
+  renderEvalRequests();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v2.9.11: Resident/Chief macro landing — 4 tiles UI
+// (Open new / Load draft / Update submission / Archive)
+// State per quarter is derived from localStorage + DEMO_SEED_EVALUATIONS.
+// ═══════════════════════════════════════════════════════════════════
+let _residentMacroSubview = 'tiles'; // 'tiles' | 'form' | 'archive'
+
+function _residentMacroState(mode) {
+  const userId = currentUser?.id;
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  const quarterId = `${now.getFullYear()}-Q${q}`;
+  if (!userId) return { quarterId, hasDraft: false, hasFinal: false, hasApproved: false };
+  const history = _getLocalHistory();
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [...history, ...seedEvals];
+  const draft = all.find(h => h.type === 'macro' && h.subType === 'draft' && h.residentId === userId && h.quarterId === quarterId);
+  const final = all.find(h => h.type === 'macro' && h.subType === 'final' && h.residentId === userId && h.quarterId === quarterId && h.evaluatorRole === 'resident');
+  const approved = all.find(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === userId && h.quarterId === quarterId);
+  return { quarterId, hasDraft: !!draft, hasFinal: !!final, hasApproved: !!approved, draft, final, approved };
+}
+
+function _renderResidentMacroTiles(mode) {
+  const screenId = mode === 'chief' ? 'screen-chief-self' : 'screen-resident-self';
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+  const s = _residentMacroState(mode);
+  const accentColor = mode === 'chief' ? 'orange' : 'blue';
+
+  const tile1Disabled = s.hasDraft || s.hasFinal || s.hasApproved;
+  const tile1Sub = s.hasApproved ? 'הערכת הרבעון הזה אושרה — המתן/י לרבעון הבא' :
+                   s.hasFinal ? 'יש הערכה ממתינה לאישור' :
+                   s.hasDraft ? 'יש טיוטה פתוחה — טען/י אותה במשבצת הבאה' :
+                   'התחל/י הערכה תקופתית חדשה לרבעון זה';
+
+  const tile2Disabled = !s.hasDraft;
+  const tile2Sub = s.hasDraft ? 'המשך/י מהמקום שעצרת' : 'אין טיוטה פתוחה לרבעון זה';
+
+  const tile3Disabled = !s.hasFinal || s.hasApproved;
+  const tile3Sub = s.hasApproved ? 'ההערכה אושרה — לא ניתן לעדכן' :
+                   s.hasFinal ? 'הוגשה הערכה — ניתן לעדכן עד לאישור PD' :
+                   'יש להגיש הערכה תחילה';
+
+  const tileBtn = (icon, title, sub, disabled, action) => `
+    <button onclick="${disabled ? '' : action}" ${disabled ? 'disabled' : ''}
+            class="bg-white rounded-xl border-2 p-5 text-right transition-all
+                   ${disabled ? 'border-gray-200 opacity-50 cursor-not-allowed' : `border-gray-200 hover:border-${accentColor}-400 hover:shadow-md cursor-pointer`}">
+      <div class="text-3xl mb-2">${icon}</div>
+      <div class="text-sm font-semibold mb-1">${title}</div>
+      <div class="text-xs text-gray-500 leading-relaxed">${sub}</div>
+    </button>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">הערכה תקופתית עצמית</h1>
+      <p class="text-xs text-gray-500 mt-0.5">רבעון ${s.quarterId} · בחר/י את הפעולה הרצויה</p>
+    </div>
+    ${s.hasApproved ? `
+      <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+        <span class="text-xl">✓</span>
+        <div class="flex-1">
+          <div class="text-sm font-medium text-green-900">הערכת הרבעון אושרה</div>
+          <div class="text-xs text-green-700 mt-0.5">המנהלת אישרה את הסיכום. ניתן לראות בתיק האישי.</div>
+        </div>
+      </div>
+    ` : s.hasFinal ? `
+      <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+        <span class="text-xl">⏳</span>
+        <div class="flex-1">
+          <div class="text-sm font-medium text-amber-900">הערכה הוגשה — ממתינה לאישור PD</div>
+          <div class="text-xs text-amber-700 mt-0.5">ניתן לעדכן את ההערכה עד שה-PD יאשר.</div>
+        </div>
+      </div>
+    ` : ''}
+    <div class="grid md:grid-cols-2 gap-3 mb-5">
+      ${tileBtn('✏️', 'פתח הערכה חדשה', tile1Sub, tile1Disabled, `_residentMacroOpen('${mode}', 'new')`)}
+      ${tileBtn('📝', 'טען טיוטה אחרונה', tile2Sub, tile2Disabled, `_residentMacroOpen('${mode}', 'draft')`)}
+      ${tileBtn('🔄', 'עדכן הגשה', tile3Sub, tile3Disabled, `_residentMacroOpen('${mode}', 'update')`)}
+      ${tileBtn('📚', 'ארכיון הערכות', 'הערכות שאושרו ברבעונים קודמים', false, `_residentMacroOpen('${mode}', 'archive')`)}
+    </div>
+
+    <!-- v2.9.12: Quick guide (collapsible) for filling out the periodic evaluation -->
+    <details class="bg-white rounded-xl border border-gray-200 mb-3">
+      <summary class="p-4 cursor-pointer hover:bg-gray-50 rounded-xl flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">💡</span>
+          <span class="text-sm font-medium">מדריך מהיר למילוי המשוב התקופתי</span>
+        </div>
+        <span class="text-gray-400 text-xs">▾</span>
+      </summary>
+      <div class="px-4 pb-4 border-t border-gray-100 text-xs text-gray-700 leading-relaxed space-y-2 pt-3">
+        <p><strong>המטרה:</strong> הערכה עצמית כנה של ההתקדמות שלך לפי 6 קומפטנציות ACGME — Patient Care, Medical Knowledge, Professionalism, Interpersonal & Communication Skills, Practice-Based Learning, Systems-Based Practice.</p>
+        <p><strong>סולם 1-5:</strong> 1 = זקוק/ה לפיקוח מלא · 3 = עצמאי/ת ברוב המקרים · 5 = עצמאי/ת לחלוטין ויכול/ה ללמד אחרים.</p>
+        <p><strong>איך למלא נכון:</strong></p>
+        <ul class="list-disc pr-5 space-y-1">
+          <li>בחר/י ציון לכל פריט מתחת לקומפטנציה — בהתבסס על מקרים אמיתיים מהרבעון.</li>
+          <li>הוסף/י דוגמה ספציפית ב-1-2 משפטים בהערה לקומפטנציה.</li>
+          <li>2 נקודות חוזק שלך + 2 תחומים שאת/ה רוצה לשפר.</li>
+          <li>יעדים ל-6 חודשים הבאים — מדידים (SMART), לדוגמה: "לבצע 10 לפרוסקופיות עצמאיות עד סוף Q3".</li>
+        </ul>
+        <p class="text-gray-500"><strong>טיפ:</strong> הטיוטה נשמרת אוטומטית. תוכל/י לחזור ולהמשיך בכל שלב לפני שליחה סופית.</p>
+        <div class="pt-2 border-t border-gray-100 mt-2">
+          <button onclick="navigateTo('methodology')" class="text-xs text-blue-600 hover:underline font-medium">לפירוט מלא → דף המתודולוגיה</button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function _residentMacroOpen(mode, action) {
+  const s = _residentMacroState(mode);
+  if (action === 'new') {
+    _residentMacroSubview = 'form';
+    renderMacroFormScreen(mode);
+  } else if (action === 'draft' && s.draft) {
+    _residentMacroSubview = 'form';
+    window._pendingDraftRestore = s.draft;
+    renderMacroFormScreen(mode);
+  } else if (action === 'update' && s.final) {
+    _residentMacroSubview = 'form';
+    window._pendingDraftRestore = s.final;
+    renderMacroFormScreen(mode);
+  } else if (action === 'archive') {
+    _residentMacroSubview = 'archive';
+    _renderResidentMacroArchive(mode);
+  }
+}
+
+function _residentMacroBackToTiles(mode) {
+  _residentMacroSubview = 'tiles';
+  _renderResidentMacroTiles(mode);
+}
+
+function _renderResidentMacroArchive(mode) {
+  const screenId = mode === 'chief' ? 'screen-chief-self' : 'screen-resident-self';
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+  const userId = currentUser?.id;
+  const history = _getLocalHistory();
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [...history, ...seedEvals]
+    .filter(h => h.type === 'macro' && h.residentId === userId &&
+                 (h.subType === 'pd_approved' || h.subType === 'final') &&
+                 h.evaluatorRole === 'resident' || (h.subType === 'pd_approved' && h.residentId === userId))
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+  // De-dup by quarterId+subType
+  const seen = new Set();
+  const items = [];
+  all.forEach(e => { const k = `${e.quarterId}_${e.subType}`; if (!seen.has(k)) { seen.add(k); items.push(e); } });
+  // Group by quarter
+  const byQuarter = {};
+  items.forEach(e => { (byQuarter[e.quarterId] = byQuarter[e.quarterId] || []).push(e); });
+
+  screen.innerHTML = `
+    <div class="mb-5 flex items-center gap-3">
+      <button onclick="_residentMacroBackToTiles('${mode}')" class="text-xs text-gray-500 hover:text-gray-700">→ חזור לתפריט</button>
+    </div>
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">ארכיון הערכות תקופתיות</h1>
+      <p class="text-xs text-gray-500 mt-0.5">${items.length} רשומות בארכיון</p>
+    </div>
+    ${Object.keys(byQuarter).length === 0 ? `
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <div class="text-4xl mb-2">📂</div>
+        <div class="text-sm text-gray-500">אין הערכות בארכיון עדיין</div>
+      </div>
+    ` : `
+      <div class="space-y-3">
+        ${Object.entries(byQuarter).map(([qId, evals]) => `
+          <div class="bg-white rounded-xl border border-gray-200 p-4">
+            <div class="text-sm font-semibold mb-3">רבעון ${qId}</div>
+            <div class="space-y-2">
+              ${evals.map(e => `
+                <div class="text-xs flex items-center gap-2 py-1">
+                  <span class="${e.subType === 'pd_approved' ? 'text-green-700' : 'text-amber-700'} font-medium">
+                    ${e.subType === 'pd_approved' ? '✓ אושר ע"י PD' : '◐ הוגש (טרם אושר)'}
+                  </span>
+                  <span class="text-gray-400">·</span>
+                  <span class="text-gray-500">${new Date(e.timestamp || e.date).toLocaleDateString('he-IL')}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `}
+  `;
+}
 // Without this, the final score field stayed frozen at the seniors' average even
 // when PD overrode individual competency scores.
 function recomputePdFinalScore() {
