@@ -663,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.18';
+const APP_VERSION = '2.9.19';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "המדריך המהיר במסך ההערכה התקופתית — משולב: סולם 1-5, 6 קומפטנציות ACGME עם משפט+דוגמה לכל אחת, איך למלא נכון (4 נקודות + SMART), טיפ על auto-save, ולינק למתודולוגיה. גלילה לאחר הרחבה זה בסדר.";
+const APP_VERSION_NOTES = "כשבכיר/ה לוחץ/ת על בקשת משוב מהיר במסך 'בקשות משובים והערכותי', טופס המשוב נפתח עם המתמחה ו-סוג האירוע מסומנים אוטומטית, ובאנר סגול בראש המסך מציין מהי הבקשה (כולל הערות שלה).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -4097,6 +4097,43 @@ function renderMicroForm(role) {
   showRestoreBanner(screenId, formId, restoreMicroState);
   attachAutoSave(screenId, formId, captureMicroState);
   window._currentMicroFormId = formId;  // remember for clearing on submit
+
+  // v2.9.19: Pre-fill from pending micro-request — when senior clicked a request
+  // in "בקשות משובים והערכותי", we pre-select the resident and the event tile
+  // so the form opens already wired to the request's context.
+  if (window._pendingMicroRequest) {
+    const req = window._pendingMicroRequest;
+    window._pendingMicroRequest = null;
+    setTimeout(() => {
+      // Pre-select resident
+      const selEl = document.getElementById('micro-resident');
+      if (selEl && req.residentId) {
+        selEl.value = req.residentId;
+        // Trigger change event so any listeners fire
+        try { selEl.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+      }
+      // Pre-click matching event tile
+      if (req.eventId) {
+        const evBtn = document.querySelector(`.event-btn[data-event="${req.eventId}"]`);
+        if (evBtn) selectEvent(evBtn);
+      }
+      // Show a context banner so the senior knows this came from a request
+      const screen = document.getElementById(screenId);
+      if (screen) {
+        const banner = document.createElement('div');
+        banner.className = 'bg-purple-50 border border-purple-200 rounded-lg p-2.5 mb-3 flex items-start gap-2 text-xs';
+        banner.innerHTML = `
+          <span class="text-base shrink-0">📨</span>
+          <div class="flex-1">
+            <div class="font-medium text-purple-900">ממלא/ת משוב לפי בקשת המתמחה</div>
+            <div class="text-purple-700 mt-0.5">${(req.residentName || '').replace(/[<>]/g,'')} ביקש/ה משוב${req.eventLabel && req.eventId ? ' על ' + req.eventLabel.replace(/[<>]/g,'') : ''}${req.notes ? ' · "' + req.notes.replace(/[<>]/g,'') + '"' : ''}</div>
+          </div>
+        `;
+        // Insert banner at the top of the screen, just inside the first child
+        screen.insertBefore(banner, screen.firstElementChild);
+      }
+    }, 100);
+  }
 }
 
 function selectEvent(btn) {
