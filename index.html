@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjMyIiBmaWxsPSIjMWQ0ZWQ4Ii8+PHRleHQgeD0iOTYiIHk9IjEyMCIgZm9udC1mYW1pbHk9IiAtYXBwbGUtc3lzdGVtLCBzZWdvZSB1aSwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI3MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Q0JNRTwvdGV4dD48L3N2Zz4=">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjMyIiBmaWxsPSIjMWQ0ZWQ4Ii8+PHRleHQgeD0iOTYiIHk9IjEyMCIgZm9udC1mYW1pbHk9IiAtYXBwbGUtc3lzdGVtLCBzZWdvZSB1aSwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI3MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Q0JNRTwvdGV4dD48L3N2Zz4=">
 <!-- Build version: 2.6.4 (2026-05-06) — Critical fix: response unwrap bug caused PD users to log in as residents, displaying demo data. Now fail-CLOSED. -->
-<title>CBME רמב"ם – מערכת הערכת מתמחים | פיילוט</title>
+<title>CBME רמב"ם – מערכת הערכת מתמחים</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
@@ -137,9 +137,9 @@
 
 <!-- ─── TOP BAR: logged-in user (hidden until login) ────────────────
      v2.9.8: compact on mobile — show only short username (email prefix).
-     Desktop keeps full info (פיילוט CBME · email · name · role). -->
+     Desktop keeps full info (מערכת CBME · email · name · role). -->
 <div id="top-bar" class="hidden role-banner sticky top-0 z-50 px-4 py-1.5 items-center gap-3 flex-wrap">
-  <div class="text-xs text-amber-900 font-medium hidden md:block">פיילוט CBME</div>
+  <div class="text-xs text-amber-900 font-medium hidden md:block">מערכת CBME</div>
   <div class="mr-auto text-xs text-amber-900 truncate">
     <span class="md:hidden"><strong id="user-short-display"></strong> · <span id="user-short-role" class="opacity-80"></span></span>
     <span class="hidden md:inline">מחובר/ת: <strong id="user-email-display"></strong> · <span id="current-user-info"></span></span>
@@ -256,7 +256,7 @@
     <div class="px-3 py-3 border-b border-gray-100" id="user-chip"></div>
     <nav class="flex-1 py-2 overflow-y-auto" id="sidebar-nav"></nav>
     <div class="px-3 py-3 border-t border-gray-100">
-      <div class="text-xs text-gray-400 px-2" id="sidebar-version">פיילוט · v...</div>
+      <div class="text-xs text-gray-400 px-2" id="sidebar-version">CBME · v...</div>
     </div>
   </aside>
 
@@ -357,7 +357,7 @@
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">מתמחים בפיילוט</div><div class="text-2xl font-medium mt-1" id="cross-kpi-residents">—</div></div>
+        <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">מתמחים פעילים</div><div class="text-2xl font-medium mt-1" id="cross-kpi-residents">—</div></div>
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">בעיות זוהו</div><div class="text-2xl font-medium mt-1 text-gray-400">0</div></div>
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">קטגוריות פעולה</div><div class="text-2xl font-medium mt-1" id="cross-kpi-categories">—</div></div>
         <div class="bg-gray-50 rounded-lg p-3"><div class="text-xs text-gray-500">פעולות במערכת</div><div class="text-2xl font-medium mt-1" id="cross-kpi-total-procs">—</div></div>
@@ -408,7 +408,7 @@
           <h1 class="text-lg font-semibold">הדשבורד שלי</h1>
           <p class="text-xs text-gray-500 mt-0.5" id="resident-header-info"></p>
         </div>
-        <span class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full">תחילת פיילוט</span>
+        <span class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full">תחילת תוכנית</span>
       </div>
 
       <!-- v2.9.12: Pending action banner — populated by renderResidentDashboard if there's a pending eval request -->
@@ -663,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.19';
+const APP_VERSION = '2.9.21';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "כשבכיר/ה לוחץ/ת על בקשת משוב מהיר במסך 'בקשות משובים והערכותי', טופס המשוב נפתח עם המתמחה ו-סוג האירוע מסומנים אוטומטית, ובאנר סגול בראש המסך מציין מהי הבקשה (כולל הערות שלה).";
+const APP_VERSION_NOTES = "BUG-001 fix: KPI 'הערכות החודש' עכשיו מאחד localStorage + DEMO_SEED (היה רק localStorage, הראה 0 כשהיו נתונים רק ב-seed). De-piloting: 15 מחרוזות הוחלפו ל-CBME/תוכנית/מערכת — כותרת tab, top-bar, sidebar version, KPI labels, methodology hints.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2963,7 +2963,22 @@ function renderPdDashboard() {
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
 
-  const history = (function() { try { return _getLocalHistory(); } catch(e) { return []; } })();
+  // v2.9.21: merge localStorage + DEMO_SEED_EVALUATIONS, dedup by timestamp+resident+type.
+  // BUG-001: previous code only read localStorage; in dev/seed scenarios evals exist in
+  // DEMO_SEED only and the KPI showed 0.
+  const history = (function() {
+    try {
+      const local = _getLocalHistory();
+      const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+      const seen = new Set();
+      const merged = [];
+      [...local, ...seed].forEach(h => {
+        const key = `${h.timestamp || h.date || 0}_${h.residentId || h.residentName || ''}_${h.type || ''}`;
+        if (!seen.has(key)) { seen.add(key); merged.push(h); }
+      });
+      return merged;
+    } catch(e) { return []; }
+  })();
   const now = new Date();
   const thisMonth = now.getMonth();
   const thisYear = now.getFullYear();
@@ -3197,7 +3212,7 @@ function renderProfile() {
       <div class="bg-white rounded-xl border border-gray-200 p-8 text-center mb-4">
         <div class="text-3xl mb-2">👤</div>
         <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות במערכת עבור ${r.name}</div>
-        <div class="text-xs text-gray-500 max-w-md mx-auto">פרופיל מלא (גרפים, השוואה עצמית מול מנחים, פידבק) יבנה אוטומטית עם הגשת ההערכות הראשונות. כרגע — מתמחה זה ${PILOT_PGY_RANGE.includes(r.pgy) ? 'בפיילוט' : 'מחוץ לפיילוט'}.</div>
+        <div class="text-xs text-gray-500 max-w-md mx-auto">פרופיל מלא (גרפים, השוואה עצמית מול מנחים, פידבק) יבנה אוטומטית עם הגשת ההערכות הראשונות. כרגע — מתמחה זה ${PILOT_PGY_RANGE.includes(r.pgy) ? 'בתוכנית' : 'מחוץ לתוכנית'}.</div>
       </div>
 
       <!-- Procedures section (always shown if data exists) -->
@@ -3684,14 +3699,14 @@ function renderResidentDashboard() {
         <div class="border-b border-gray-100 last:border-0 py-2.5">
           <div class="flex items-center justify-between gap-2 mb-1">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs font-medium text-gray-900">${e.evaluatorName}</span>
+              <span class="text-xs font-medium text-gray-900">${escapeHtml(e.evaluatorName)}</span>
               <span class="text-xs text-gray-400">·</span>
-              <span class="text-xs text-gray-600">${e.categoryLabel || e.category}</span>
+              <span class="text-xs text-gray-600">${escapeHtml(e.categoryLabel || e.category)}</span>
               <span class="text-xs px-1.5 py-0.5 rounded ${scoreColor}">EPA ${e.categoryScore}</span>
             </div>
             <span class="text-xs text-gray-400">${dateStr}</span>
           </div>
-          <div class="text-xs text-gray-700 leading-relaxed">${e.visibleFeedback}</div>
+          <div class="text-xs text-gray-700 leading-relaxed">${escapeHtml(e.visibleFeedback)}</div>
         </div>`;
     }).join('');
   }
@@ -3711,7 +3726,7 @@ function renderApproved() {
       <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
         <div class="text-3xl mb-2">📋</div>
         <div class="text-sm font-medium text-gray-900 mb-1">אין סיכומים מאושרים עדיין</div>
-        <div class="text-xs text-gray-500 max-w-md mx-auto">סיכומים תקופתיים שמנהל/ת התוכנית יאשר/תאשר יופיעו כאן. הסיכום הראשון נוצר בתום הרבעון הראשון לפיילוט.</div>
+        <div class="text-xs text-gray-500 max-w-md mx-auto">סיכומים תקופתיים שמנהל/ת התוכנית יאשר/תאשר יופיעו כאן. הסיכום הראשון נוצר בתום הרבעון הראשון.</div>
       </div>`;
     return;
   }
@@ -4663,7 +4678,7 @@ function renderPortfolio(viewer) {
                 <div class="px-3 pb-3 pt-1 border-t border-gray-50 text-xs text-gray-600">
                   ${scores.length > 0 ? `<div class="mb-2"><span class="font-medium">ציוני EPA:</span> ${Object.entries(e.epaScores || {}).map(([k,v]) => `${k}: ${v}`).join(' · ')}</div>` : ''}
                   ${feedback ? `<div class="mb-1"><span class="font-medium">${isSelf ? 'תובנה:' : 'משוב:'}</span> ${feedback}</div>` : ''}
-                  ${e.privateNotes ? `<div class="text-gray-400"><span class="font-medium">הערה פרטית:</span> ${e.privateNotes}</div>` : ''}
+                  ${e.privateNotes ? `<div class="text-gray-400"><span class="font-medium">הערה פרטית:</span> ${escapeHtml(e.privateNotes)}</div>` : ''}
                   ${!feedback && !scores.length ? '<div class="text-gray-400">אין פרטים נוספים</div>' : ''}
                 </div>
               </details>
@@ -5020,7 +5035,7 @@ const AI_SAMPLE_RESPONSES = {
   default: {
     summary: 'אין מספיק נתונים לניתוח עדיין.',
     findings: [
-      { type: 'neutral', title: 'הפיילוט בתחילת דרכו', detail: 'דרושות לפחות 10 הערכות במערכת לפני שניתוח חכם יוכל לזהות דפוסים. ככל שיוגשו יותר הערכות, התשובות כאן יעמיקו.' },
+      { type: 'neutral', title: 'המערכת בתחילת דרכה', detail: 'דרושות לפחות 10 הערכות במערכת לפני שניתוח חכם יוכל לזהות דפוסים. ככל שיוגשו יותר הערכות, התשובות כאן יעמיקו.' },
     ],
     sources: ['0 הערכות במערכת'],
     actions: [],
@@ -6455,7 +6470,7 @@ function renderEvalRequests() {
             <div class="bg-white rounded-xl border ${allDone ? 'border-green-200 bg-green-50/30' : pastDeadline ? 'border-red-200 bg-red-50/30' : 'border-gray-200'} p-4">
               <div class="flex items-start justify-between gap-3 flex-wrap mb-2">
                 <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium">${req.residentName} · רבעון ${req.quarterId}</div>
+                  <div class="text-sm font-medium">${escapeHtml(req.residentName)} · רבעון ${escapeHtml(req.quarterId)}</div>
                   <div class="text-xs text-gray-500 mt-0.5">תאריך יעד: ${req.deadline || '—'} · ${fmtRel(req.deadline)}</div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -6467,12 +6482,12 @@ function renderEvalRequests() {
                 ${completion.map((c, i) => `
                   <div class="text-xs flex items-center gap-2 py-0.5">
                     <span class="${c.done ? 'text-green-700' : 'text-gray-400'}">${c.done ? '✓' : '○'}</span>
-                    <span class="${c.done ? 'text-gray-700' : 'text-gray-500'}">${req.evaluatorNames[i] || c.evaluatorId}</span>
+                    <span class="${c.done ? 'text-gray-700' : 'text-gray-500'}">${escapeHtml(req.evaluatorNames[i] || c.evaluatorId)}</span>
                     ${c.done ? '<span class="text-xs text-green-600">— הוגש</span>' : '<span class="text-xs text-gray-400">— ממתין</span>'}
                   </div>
                 `).join('')}
               </div>
-              ${req.notes ? `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100"><strong>הערות:</strong> ${req.notes}</div>` : ''}
+              ${req.notes ? `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100"><strong>הערות:</strong> ${escapeHtml(req.notes)}</div>` : ''}
             </div>
           `;
         }).join('')}
@@ -7606,8 +7621,8 @@ ${reportStyles()}
           <span class="epa">EPA ${e.categoryScore}</span> ·
           <span class="date">${d.toLocaleDateString('he-IL')}</span>
         </div>
-        <div class="feedback-text">${e.visibleFeedback || ''}</div>
-        ${isPdView && e.privateNote ? `<div class="private-note"><em>הערה פרטית:</em> ${e.privateNote}</div>` : ''}
+        <div class="feedback-text">${escapeHtml(e.visibleFeedback || '')}</div>
+        ${isPdView && e.privateNote ? `<div class="private-note"><em>הערה פרטית:</em> ${escapeHtml(e.privateNote)}</div>` : ''}
       </li>`;
     }).join('')}</ul>`}
   </section>
@@ -7769,7 +7784,7 @@ ${reportStylesEN()}
           <span class="epa">EPA Level ${e.categoryScore}</span> ·
           <span class="date">${d.toLocaleDateString('en-US')}</span>
         </div>
-        <div class="feedback-text"><em>"${e.visibleFeedback || ''}"</em> <small style="color:#888">(translation provided upon request)</small></div>
+        <div class="feedback-text"><em>"${escapeHtml(e.visibleFeedback || '')}"</em> <small style="color:#888">(translation provided upon request)</small></div>
       </li>`;
     }).join('')}</ul>`}
   </section>
@@ -8329,8 +8344,8 @@ function renderProceduresScreen(role) {
   const filterMode = role === 'attending' ? 'ob_only' : 'all';
 
   const headerSubtitle = role === 'attending'
-    ? 'השוואה בין מתמחי הפיילוט (PGY 1-2) — פעולות מיילדות בלבד'
-    : 'השוואה מלאה בין מתמחי הפיילוט (PGY 1-2)';
+    ? 'השוואה בין מתמחי התוכנית (PGY 1-2) — פעולות מיילדות בלבד'
+    : 'השוואה מלאה בין מתמחי התוכנית (PGY 1-2)';
 
   target.innerHTML = `
     <div class="mb-5">
@@ -9225,7 +9240,7 @@ function renderMethodology() {
         </ol>
       </div>
       <div class="text-xs text-gray-500 mt-3 leading-relaxed">
-        בפיילוט הראשון — PDP הוא <em>טקסט חופשי</em> שיכול להיות חלק מהסיכום של PD. בעתיד נוסיף מסך ייעודי למעקב מתמשך.
+        בשלב הנוכחי — PDP הוא <em>טקסט חופשי</em> שיכול להיות חלק מהסיכום של PD. בעתיד נוסיף מסך ייעודי למעקב מתמשך.
       </div>
     </section>
 
@@ -9270,7 +9285,7 @@ function renderDataManagementScreen() {
     </div>
 
     <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-900">
-      <strong>שלב 1 בפיילוט:</strong> נתונים שמועלים פה נשמרים מקומית בדפדפן שלך (ה-PD) בלבד. בשלב 2 (אינטגרציית Drive) הם יועברו אוטומטית לכל המשתמשים. בינתיים, הקובץ המקורי שצורף בבניית הפיילוט מוטמע ונראה לכולם.
+      <strong>שלב 1:</strong> נתונים שמועלים פה נשמרים מקומית בדפדפן שלך (ה-PD) בלבד. בשלב 2 (אינטגרציית Drive) הם יועברו אוטומטית לכל המשתמשים. בינתיים, הקובץ המקורי שצורף בבניית המערכת מוטמע ונראה לכולם.
     </div>
 
     <!-- Procedures upload card -->
@@ -9581,6 +9596,20 @@ function renderUserRow(u, currentTab, isPdViewer) {
 function escapeAttr(s) {
   return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
+
+// v2.9.20: Global HTML escape utility — use whenever interpolating user-controlled
+// data into innerHTML/template literals. Prevents XSS via <script>, onerror=, etc.
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+// Short alias for readability inside dense template literals
+const esc = escapeHtml;
 
 function switchStaffTab(tab) {
   window._staffTab = tab;
@@ -10776,7 +10805,13 @@ function buildAnalysisContext(scope) {
       }
       
       // Micro evaluation stats
-      const microEvals = DEMO_SEED_EVALUATIONS.filter(e => e.type === 'micro' && e.residentName === name);
+      // v2.9.20: demo isolation fix — getSeedEvalsForResident() returns [] for
+      // non-demo residents (whitelisted to רן דוגמן only). Real residents'
+      // micro data comes from localStorage. Without this guard, the AI Coach
+      // could analyze demo seed data if names happened to match.
+      const _seedPool = getSeedEvalsForResident(name);
+      const _localPool = (function() { try { return _getLocalHistory(); } catch(e) { return []; } })();
+      const microEvals = [..._seedPool, ..._localPool].filter(e => e.type === 'micro' && e.residentName === name);
       if (microEvals.length > 0) {
         const avgScore = microEvals.reduce((s, e) => s + (e.categoryScore || 0), 0) / microEvals.length;
         const byCategory = {};
@@ -11459,7 +11494,7 @@ document.addEventListener('visibilitychange', () => {
           indicator.textContent = `v${APP_VERSION} · ${APP_VERSION_DATE}`;
           indicator.title = `${APP_VERSION_NOTES}\n\nגרסה: ${APP_VERSION}\nתאריך: ${APP_VERSION_DATE}`;
         }
-        if (sidebar) sidebar.textContent = `פיילוט · v${APP_VERSION}`;
+        if (sidebar) sidebar.textContent = `CBME · v${APP_VERSION}`;
       } else {
         // APP_VERSION not yet defined — retry shortly
         setTimeout(setVersion, 100);
