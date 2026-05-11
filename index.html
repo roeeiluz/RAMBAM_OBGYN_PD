@@ -663,9 +663,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.9.21';
+const APP_VERSION = '2.10.0';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "BUG-001 fix: KPI 'הערכות החודש' עכשיו מאחד localStorage + DEMO_SEED (היה רק localStorage, הראה 0 כשהיו נתונים רק ב-seed). De-piloting: 15 מחרוזות הוחלפו ל-CBME/תוכנית/מערכת — כותרת tab, top-bar, sidebar version, KPI labels, methodology hints.";
+const APP_VERSION_NOTES = "v2.10.0: Code.gs deploy נדרש. הסרת כפילות pd-iluz/a-iluz ו-pd-mor/a-mor (PD נשאר עם הרשאת senior). 5 actions חדשות בbackend: submit/list/cancel eval_request + submit/list micro_request. ה-frontend שולח POST לכל request בנוסף ל-localStorage.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2278,9 +2278,9 @@ const STAFF = {
     { id: 'a-tsipori',   name: 'ד"ר יניב ציפורי',   initials: 'יצ', email: 'Y_ZIPORI@rambam.health.gov.il' },
     { id: 'a-shulman',   name: 'פרופ\' עידו שולט',  initials: 'עש', email: 'i_solt@rambam.health.gov.il' },
     { id: 'a-shahak',    name: 'ד"ר גלעד שחק',     initials: 'גש', email: 'G_SHAHAK@rambam.health.gov.il' },
-    { id: 'a-iluz',      name: 'ד"ר רועי אילוז',   initials: 'רא', email: 'r_iluz@rambam.health.gov.il' },
+    // v2.10.0: a-iluz removed — duplicate of pd-iluz. PD can still evaluate via attending-macro/micro screens (NAV_BY_ROLE.pd includes them).
     { id: 'a-ginsberg',  name: 'ד"ר יובל גינסברג', initials: 'יג', email: 'y_ginsberg@rambam.health.gov.il' },
-    { id: 'a-mor',       name: 'ד"ר עומר מור',     initials: 'עמ', email: 'o_mor@rambam.health.gov.il' },
+    // v2.10.0: a-mor removed — duplicate of pd-mor. Same reasoning.
     { id: 'a-ganaim',    name: 'ד"ר אימאן גנאים',  initials: 'אג', email: 'E_ganayem@rambam.health.gov.il' },
     { id: 'a-tsur',      name: 'ד"ר ליליה צור',    initials: 'לצ', note: 'בכירה צעירה', email: 'l_tzur@rambam.health.gov.il' },
     { id: 'a-aboud',     name: 'ד"ר יוסף עבוד',    initials: 'יע', note: 'בכיר צעיר', email: 'y_abbout@rambam.health.gov.il' },
@@ -5887,6 +5887,7 @@ function aggregateMacroEvalsForResident(residentName, quarterId) {
       name: e.evaluatorName,
       role: e.evaluatorRole === 'resident' ? 'הערכה עצמית'
           : e.evaluatorRole === 'attending' ? 'בכיר/ה'
+          : e.evaluatorRole === 'pd' ? 'מנהל/ת תוכנית'
           : e.evaluatorRole === 'chief' ? 'מתמחה אחראי/ת'
           : e.evaluatorRole,
       submitted: `${d.getDate()}.${d.getMonth()+1}.${d.getFullYear().toString().slice(-2)}`,
@@ -6586,7 +6587,15 @@ function _submitEvalRequest() {
   const all = _getEvalRequests();
   all.push(req);
   _saveEvalRequests(all);
-  // TODO production: POST to backend action `submit_eval_request` (see BACKEND_NOTES.md)
+  // v2.10.0: POST to backend (best-effort; localStorage stays as fallback for dev mode)
+  if (typeof DEV_BYPASS_AUTH === 'undefined' || !DEV_BYPASS_AUTH) {
+    try {
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'submit_eval_request', secret: SHARED_SECRET, token: sessionToken, data: req }),
+      }).catch(e => console.warn('Eval-request backend POST failed (local kept):', e));
+    } catch (e) { /* swallow */ }
+  }
   logToAudit('eval_request_created', { residentId, quarterId, evaluatorCount: req.evaluatorIds.length });
   showToast('✅ בקשת הערכה נשלחה', 'success');
   _closeEvalRequestModal();
@@ -6595,8 +6604,19 @@ function _submitEvalRequest() {
 
 function _cancelEvalRequest(reqId) {
   if (!confirm('לבטל את הבקשה?')) return;
-  const all = _getEvalRequests().filter(r => r.id !== reqId);
+  const allBefore = _getEvalRequests();
+  const target = allBefore.find(r => r.id === reqId);
+  const all = allBefore.filter(r => r.id !== reqId);
   _saveEvalRequests(all);
+  // v2.10.0: also cancel on backend
+  if (target && (typeof DEV_BYPASS_AUTH === 'undefined' || !DEV_BYPASS_AUTH)) {
+    try {
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'cancel_eval_request', secret: SHARED_SECRET, token: sessionToken, data: { reqId, quarterId: target.quarterId } }),
+      }).catch(e => console.warn('Eval-request cancel backend failed:', e));
+    } catch (e) { /* swallow */ }
+  }
   logToAudit('eval_request_cancelled', { reqId });
   showToast('הבקשה בוטלה', 'info');
   renderEvalRequests();
@@ -6721,7 +6741,15 @@ function _submitMicroRequest() {
   const all = _getMicroRequests();
   all.push(req);
   _saveMicroRequests(all);
-  // TODO production: POST to backend action `submit_micro_request` (BACKEND_NOTES.md)
+  // v2.10.0: POST to backend (best-effort)
+  if (typeof DEV_BYPASS_AUTH === 'undefined' || !DEV_BYPASS_AUTH) {
+    try {
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'submit_micro_request', secret: SHARED_SECRET, token: sessionToken, data: req }),
+      }).catch(e => console.warn('Micro-request backend POST failed (local kept):', e));
+    } catch (e) { /* swallow */ }
+  }
   logToAudit('micro_request_created', { evaluatorId, eventId });
   showToast('✅ בקשת משוב נשלחה', 'success');
   _closeMicroRequestModal();
