@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.7-dev';
+const APP_VERSION = '2.10.8-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.7: הוסר אריח 'טיוטות שלי' — טיוטות נכללות כעת ב'ממתינים לסיכום' (4 אריחים במקום 5, רשת 2x2).";
+const APP_VERSION_NOTES = "v2.10.8: לחיצה על 'סיכום תקופתי (PD)' בתפריט תמיד פותחת את דף האריחים (לא זוכרת תת-מצב קודם).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2819,6 +2819,14 @@ function navigateTo(screenId) {
   // v2.9.11: when entering resident-self / chief-self fresh from elsewhere, reset to tiles view
   if ((screenId === 'resident-self' || screenId === 'chief-self') && currentScreen !== screenId) {
     _residentMacroSubview = 'tiles';
+  }
+  // v2.10.8: when re-entering pd-macro from the sidebar nav, always reset to tiles view
+  // (don't remember the last sub-view — clicking "סיכום תקופתי (PD)" goes home)
+  if (screenId === 'pd-macro' && currentScreen !== screenId) {
+    _pdMacroSubview = 'tiles';
+    _pdMacroTileFilter = null;
+    _pdMacroEditUnlocked = false;
+    _pdMacroReadOnlyView = false;
   }
 
   currentScreen = screenId;
