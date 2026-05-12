@@ -129,16 +129,19 @@ const USERS = [
   // PD
   { id: 'pd-iluz',      name: 'ד"ר רועי אילוז',     role: 'pd',        email: 'r_iluz@rambam.health.gov.il' },
   { id: 'pd-mor',       name: 'ד"ר עומר מור',       role: 'pd',        email: 'o_mor@rambam.health.gov.il' },
+  // v2.10.3: Cuzin and Shahak elevated to PD (full permissions)
+  { id: 'pd-cuzin',     name: 'רויטל קוזין',         role: 'pd',        email: 'r_cuzin@rambam.health.gov.il' },
+  { id: 'pd-shahak',    name: 'ד"ר גלעד שחק',       role: 'pd',        email: 'G_SHAHAK@rambam.health.gov.il' },
 
   // Program coordinator (רכזת תוכנית) — view all + upload data + generate reports.
   // Cannot approve final macro summaries (PD signature only).
-  { id: 'coord-cuzin',  name: 'רויטל קוזין',        role: 'coordinator', email: 'r_cuzin@rambam.health.gov.il' },
+  // v2.10.3: coord-cuzin removed — Cuzin elevated to pd-cuzin (same email, PD role).
 
   // Senior attendings (note: Iluz + Mor also appear as attending — same email)
   { id: 'a-argaz',      name: 'ד"ר אודי ארגז',      role: 'attending', email: 'u_ergaz@rambam.health.gov.il' },
   { id: 'a-tsipori',    name: 'ד"ר יניב ציפורי',     role: 'attending', email: 'Y_ZIPORI@rambam.health.gov.il' },
   { id: 'a-shulman',    name: 'פרופ\' עידו שולט',    role: 'attending', email: 'i_solt@rambam.health.gov.il' },
-  { id: 'a-shahak',     name: 'ד"ר גלעד שחק',       role: 'attending', email: 'G_SHAHAK@rambam.health.gov.il' },
+  // v2.10.3: a-shahak removed — Shahak elevated to pd-shahak (same email, PD role).
   // v2.10.0: a-iluz removed — duplicate of pd-iluz (same email). PD has senior privileges.
   { id: 'a-ginsberg',   name: 'ד"ר יובל גינסברג',   role: 'attending', email: 'y_ginsberg@rambam.health.gov.il' },
   // v2.10.0: a-mor removed — duplicate of pd-mor (same email).
