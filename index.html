@@ -131,6 +131,39 @@
      mobile bottom nav). */
   body.in-app #rambam-logo-link,
   body.in-app #version-indicator { display: none !important; }
+
+  /* v2.10.2: Sandbox visual differentiation
+     When body.is-sandbox is set, an orange/amber banner pinned at top warns the user
+     and the rambam logo gets an amber tint so the sandbox is unmistakable. */
+  body.is-sandbox::before {
+    content: '🧪 SANDBOX — Development environment · Data stays in your browser · Does NOT reach Drive';
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: linear-gradient(90deg, #f59e0b 0%, #ea580c 100%);
+    color: white;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  body.is-sandbox #rambam-logo-link {
+    background: linear-gradient(135deg, rgba(234, 88, 12, 0.92) 0%, rgba(180, 83, 9, 0.92) 100%) !important;
+  }
+  body.is-sandbox #version-indicator {
+    background: rgba(234, 88, 12, 0.92) !important;
+  }
+  /* Sandbox login screen accent — replace blue/purple with amber */
+  body.is-sandbox #login-screen {
+    background: linear-gradient(to bottom, #fff7ed, #ffedd5) !important;
+  }
+  body.is-sandbox .text-blue-600 { color: #ea580c !important; }
+  body.is-sandbox .bg-blue-600 { background-color: #ea580c !important; }
+  body.is-sandbox .border-blue-200 { border-color: #fed7aa !important; }
+  body.is-sandbox .bg-blue-50 { background-color: #fff7ed !important; }
 </style>
 </head>
 <body class="text-gray-900">
@@ -663,14 +696,53 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.1';
-const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "Stability hardening (frontend-only): LOCAL_HISTORY_MAX מוגדל מ-100 ל-2000 (1 שנת שימוש = ~1100 הערכות; 100 איבד 91%). הוספת safeSetItem utility למניעת crash על quota errors. דוח עומסים מלא ב-STABILITY_REPORT_v2.10.0.md.";
+const APP_VERSION = '2.10.12';
+const APP_VERSION_DATE = '12.5.2026';
+const APP_VERSION_NOTES = "v2.10.12: עמוד 'הערכה תקופתית' (בכירים/PD) קיבל אריחים: פתח חדשה / טיוטות / סטטוס כל ההערכות. כל הערכה מקבלת סטטוס (טיוטה/סגורה/סגורה לאחר דדליין).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
 const DEV_BYPASS_AUTH = true;
 // ────────────────────────────────────────────────────────────────────
+
+// v2.10.2: Sandbox visual indicators — applied as early as possible so the
+// banner shows before any other UI renders. body.is-sandbox triggers the CSS
+// rules in <head> (orange banner, amber theme, warning-colored logo/chip).
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+  try {
+    document.body.classList.add('is-sandbox');
+    // Prefix browser tab title so it's obvious in tab list
+    if (document.title && !document.title.startsWith('🧪')) {
+      document.title = '🧪 [SANDBOX] ' + document.title;
+    }
+  } catch (e) { /* DOM not ready — set later */ }
+  // Also re-apply on DOMContentLoaded in case body wasn't available yet
+  document.addEventListener('DOMContentLoaded', function() {
+    document.body.classList.add('is-sandbox');
+    if (document.title && !document.title.startsWith('🧪')) {
+      document.title = '🧪 [SANDBOX] ' + document.title;
+    }
+  });
+}
+
+// v2.10.2: localStorage namespace isolation between dev and prod environments.
+// When DEV_BYPASS_AUTH=true, ALL localStorage keys starting with 'cbme_' are
+// transparently rerouted to 'cbme_dev_'. Result: dev and prod share origin
+// (same GitHub Pages host) BUT keep their data fully separated. Switching
+// between /dev/ and / does not contaminate either side's cache.
+// Implementation: monkey-patch at script top, before any consumer code runs.
+(function() {
+  if (typeof DEV_BYPASS_AUTH === 'undefined' || !DEV_BYPASS_AUTH) return;
+  if (typeof localStorage === 'undefined') return;
+  const _get = localStorage.getItem.bind(localStorage);
+  const _set = localStorage.setItem.bind(localStorage);
+  const _rem = localStorage.removeItem.bind(localStorage);
+  const ns = (k) => (typeof k === 'string' && k.startsWith('cbme_') && !k.startsWith('cbme_dev_')) ? 'cbme_dev_' + k.slice(5) : k;
+  localStorage.getItem    = (k) => _get(ns(k));
+  localStorage.setItem    = (k, v) => _set(ns(k), v);
+  localStorage.removeItem = (k) => _rem(ns(k));
+  // Note: localStorage.key(i) and .length are unmodified — fine for our use.
+})();
 
 // DEV MODE: intercept ALL backend calls — return mock success responses
 if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
@@ -2268,16 +2340,19 @@ const STAFF = {
   pd: [
     { id: 'pd-iluz', name: 'ד"ר רועי אילוז', initials: 'רא', email: 'r_iluz@rambam.health.gov.il' },
     { id: 'pd-mor',  name: 'ד"ר עומר מור',   initials: 'עמ', email: 'o_mor@rambam.health.gov.il' },
+    // v2.10.3: Cuzin and Shahak elevated to PD (full permissions)
+    { id: 'pd-cuzin',  name: 'רויטל קוזין',    initials: 'רק', email: 'r_cuzin@rambam.health.gov.il' },
+    { id: 'pd-shahak', name: 'ד"ר גלעד שחק',   initials: 'גש', email: 'G_SHAHAK@rambam.health.gov.il' },
   ],
   coordinator: [
-    { id: 'coord-cuzin', name: 'רויטל קוזין', initials: 'רק', email: 'r_cuzin@rambam.health.gov.il' },
+    // v2.10.3: coord-cuzin removed — Cuzin is now in STAFF.pd
   ],
   attending: [
     { id: 'a-avrahami',  name: 'ד"ר רוני אברהמי',  initials: 'רא', email: 'r_avrahami@rambam.health.gov.il' },
     { id: 'a-argaz',     name: 'ד"ר אודי ארגז',    initials: 'אא', email: 'u_ergaz@rambam.health.gov.il' },
     { id: 'a-tsipori',   name: 'ד"ר יניב ציפורי',   initials: 'יצ', email: 'Y_ZIPORI@rambam.health.gov.il' },
     { id: 'a-shulman',   name: 'פרופ\' עידו שולט',  initials: 'עש', email: 'i_solt@rambam.health.gov.il' },
-    { id: 'a-shahak',    name: 'ד"ר גלעד שחק',     initials: 'גש', email: 'G_SHAHAK@rambam.health.gov.il' },
+    // v2.10.3: a-shahak removed — Shahak is now in STAFF.pd
     // v2.10.0: a-iluz removed — duplicate of pd-iluz. PD can still evaluate via attending-macro/micro screens (NAV_BY_ROLE.pd includes them).
     { id: 'a-ginsberg',  name: 'ד"ר יובל גינסברג', initials: 'יג', email: 'y_ginsberg@rambam.health.gov.il' },
     // v2.10.0: a-mor removed — duplicate of pd-mor. Same reasoning.
@@ -2479,6 +2554,30 @@ const NAV_BY_ROLE = {
   ],
 };
 
+// v2.10.4: Per-user nav overrides — used to hide nav items for specific users
+// even when their role would normally show them.
+// Example: רויטל קוזין is PD (full permissions) but should NOT see micro/macro fill screens
+// because she is the program coordinator who only reviews & approves, not fills evaluations.
+const NAV_USER_OVERRIDES = {
+  'pd-cuzin': {
+    hide: ['attending-micro', 'attending-macro']
+  }
+  // Future: add more user-specific overrides here
+};
+
+function _filterNavForUser(items) {
+  try {
+    const uid = currentUser && currentUser.id;
+    if (!uid) return items;
+    const override = NAV_USER_OVERRIDES[uid];
+    if (!override || !override.hide || !override.hide.length) return items;
+    const hideSet = new Set(override.hide);
+    return items.filter(it => !hideSet.has(it.id));
+  } catch (e) {
+    return items;
+  }
+}
+
 // Helper: returns true if role can view full department data (PD or Coordinator)
 function isAdminRole(role) {
   return role === 'pd' || role === 'coordinator';
@@ -2507,7 +2606,8 @@ function buildSidebar() {
   `;
 
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = NAV_BY_ROLE[currentRole].map(item => `
+  const navItems = _filterNavForUser(NAV_BY_ROLE[currentRole] || []);
+  nav.innerHTML = navItems.map(item => `
     ${item.divider ? '<div class="border-t border-gray-100 my-2 mx-3"></div>' : ''}
     <a href="#" onclick="navigateTo('${item.id}'); return false;" class="sidebar-item ${currentScreen === item.id ? 'active' : 'text-gray-600'} flex items-center gap-2.5 px-3 py-2 mx-1 rounded-md text-xs">
       <span class="${currentScreen === item.id ? 'text-blue-600' : 'text-gray-400'}">${item.icon}</span>
@@ -2519,7 +2619,7 @@ function buildSidebar() {
 function buildMobileNav() {
   // v2.9.8: 4 first items + "עוד" (More) opens an upward sheet with the rest.
   // Without this, methodology + settings were unreachable on mobile.
-  const allItems = NAV_BY_ROLE[currentRole] || [];
+  const allItems = _filterNavForUser(NAV_BY_ROLE[currentRole] || []);
   const MAX_VISIBLE = 4;
   const showMore = allItems.length > MAX_VISIBLE;
   const visible = showMore ? allItems.slice(0, MAX_VISIBLE) : allItems.slice(0, 5);
@@ -2701,6 +2801,16 @@ function applyTheme(theme) {
 }
 
 function navigateTo(screenId) {
+  // v2.10.4: block screens hidden via NAV_USER_OVERRIDES (defense in depth)
+  try {
+    const uid = currentUser && currentUser.id;
+    const override = uid && NAV_USER_OVERRIDES[uid];
+    if (override && override.hide && override.hide.includes(screenId)) {
+      console.warn('[NAV] Blocked navigation to', screenId, 'for user', uid);
+      return;
+    }
+  } catch (e) { /* ignore */ }
+
   // ── Auto-save macro draft when navigating away from a macro form ──
   const macroScreens = ['attending-macro', 'resident-self', 'chief-self'];
   if (macroScreens.includes(currentScreen) && screenId !== currentScreen) {
@@ -2709,6 +2819,18 @@ function navigateTo(screenId) {
   // v2.9.11: when entering resident-self / chief-self fresh from elsewhere, reset to tiles view
   if ((screenId === 'resident-self' || screenId === 'chief-self') && currentScreen !== screenId) {
     _residentMacroSubview = 'tiles';
+  }
+  // v2.10.8: when re-entering pd-macro from the sidebar nav, always reset to tiles view
+  // (don't remember the last sub-view — clicking "סיכום תקופתי (PD)" goes home)
+  if (screenId === 'pd-macro' && currentScreen !== screenId) {
+    _pdMacroSubview = 'tiles';
+    _pdMacroTileFilter = null;
+    _pdMacroEditUnlocked = false;
+    _pdMacroReadOnlyView = false;
+  }
+  // v2.10.12: same for attending-macro — clicking "הערכה תקופתית" lands on tiles
+  if (screenId === 'attending-macro' && currentScreen !== screenId) {
+    _attendingMacroSubview = 'tiles';
   }
 
   currentScreen = screenId;
@@ -2898,7 +3020,13 @@ function renderScreen() {
   if (currentScreen === 'resident-self-micro') renderSelfMicroForm();
 
   if (currentScreen === 'attending-micro') renderMicroForm();
-  if (currentScreen === 'attending-macro') renderMacroFormScreen('attending');
+  if (currentScreen === 'attending-macro') {
+    // v2.10.12: tile dashboard for attending/PD macro-fill flow
+    if (_attendingMacroSubview === 'drafts')    _renderAttendingMacroDrafts();
+    else if (_attendingMacroSubview === 'all')  _renderAttendingMacroAllEvals();
+    else if (_attendingMacroSubview === 'form') renderMacroFormScreen('attending');
+    else _renderAttendingMacroTiles();
+  }
   if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
   if (currentScreen === 'eval-status') renderEvalStatus();
   if (currentScreen === 'eval-requests') renderEvalRequests();
@@ -3562,36 +3690,73 @@ function renderResidentDashboard() {
   // v2.9.15: actionable section — points to improve + goals from latest pd_approved + personal pad
   try { _renderResidentActionable(r); } catch (e) { console.warn('Actionable render failed:', e); }
 
-  // v2.9.12: Pending action banner — show if resident has any open eval requests
-  // OR has a pending self-eval (final not approved yet) OR a draft to continue
+  // v2.9.12 → v2.10.11: Pending action banner — refined logic
+  // RULES:
+  //   - If a PD-approved summary exists for the current quarter → hide banner entirely (resident is done)
+  //   - If a final self-eval was submitted (not yet approved) → INFO banner (gray/blue), no action button
+  //   - A draft is only "actionable" if no final/approval already exists for the same quarter (the
+  //     old logic kept stale drafts visible even after the resident had already submitted a final)
+  //   - If open eval-requests are still pending + no final yet → action banner with "open eval" button
   try {
     const banner = document.getElementById('resident-pending-banner');
     if (banner) {
-      const reqs = _getEvalRequests().filter(req => req.residentId === r.id && req.status === 'open');
       const state = _residentMacroState('resident');
-      const today = new Date().toISOString().slice(0, 10);
-      const parts = [];
-      reqs.forEach(req => {
-        const completion = _evalRequestCompletionMap(req);
-        const allDone = completion.every(c => c.done);
-        if (!allDone) {
-          const isPast = req.deadline && req.deadline < today;
-          parts.push(`<div class="text-xs ${isPast ? 'text-red-700' : 'text-amber-800'}">📥 בקשת הערכה תקופתית (${req.quarterId}) — תאריך יעד: ${req.deadline}${isPast ? ' (פג!)' : ''}</div>`);
+
+      // Case 1: approved → nothing to do, hide the banner
+      if (state.hasApproved) {
+        banner.innerHTML = '';
+      } else {
+        const reqs = _getEvalRequests().filter(req => req.residentId === r.id && req.status === 'open');
+        const today = new Date().toISOString().slice(0, 10);
+        const actionable = [];   // amber items that need user action
+        const infoItems  = [];   // grey/info items (already submitted, awaiting others)
+
+        // Open eval-requests
+        reqs.forEach(req => {
+          const completion = _evalRequestCompletionMap(req);
+          const allDone = completion.every(c => c.done);
+          if (!allDone) {
+            const isPast = req.deadline && req.deadline < today;
+            // If user already has a final for this quarter, treat the request as info (resident did their part)
+            if (state.hasFinal && req.quarterId === state.quarterId) {
+              infoItems.push(`<div class="text-xs text-gray-600">📥 בקשת הערכה (${req.quarterId}) — ההערכה שלך הוגשה, ממתינים לבכירים אחרים</div>`);
+            } else {
+              actionable.push(`<div class="text-xs ${isPast ? 'text-red-700' : 'text-amber-800'}">📥 בקשת הערכה תקופתית (${req.quarterId}) — תאריך יעד: ${req.deadline || '—'}${isPast ? ' (פג!)' : ''}</div>`);
+            }
+          }
+        });
+
+        // Draft — only actionable if no final/approval already exists for the same quarter
+        if (state.hasDraft && !state.hasFinal && !state.hasApproved) {
+          actionable.push(`<div class="text-xs text-amber-800">📝 יש לך טיוטה פתוחה ל-${state.quarterId} — <a href="#" onclick="event.preventDefault(); navigateTo('resident-self'); _residentMacroOpen('resident','draft')" class="underline">המשך</a></div>`);
         }
-      });
-      if (state.hasDraft) {
-        parts.push(`<div class="text-xs text-amber-800">📝 יש לך טיוטה פתוחה ל-${state.quarterId} — <a href="#" onclick="event.preventDefault(); navigateTo('resident-self'); _residentMacroOpen('resident','draft')" class="underline">המשך</a></div>`);
+
+        // Final submitted, awaiting PD approval — INFO, not action
+        if (state.hasFinal && !state.hasApproved) {
+          infoItems.push(`<div class="text-xs text-gray-600">⏳ הערכה עצמית הוגשה ל-${state.quarterId} — ממתינה לאישור PD</div>`);
+        }
+
+        // Render decision tree
+        if (actionable.length > 0) {
+          banner.innerHTML = `
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <div class="text-sm font-semibold text-amber-900 mb-2">פעולות נדרשות</div>
+              <div class="space-y-1.5">${[...actionable, ...infoItems].join('')}</div>
+              <div class="mt-2"><button onclick="navigateTo('resident-self')" class="text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">פתח הערכה תקופתית ←</button></div>
+            </div>
+          `;
+        } else if (infoItems.length > 0) {
+          // Info-only — no action button (and no scary "פעולות נדרשות" header)
+          banner.innerHTML = `
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
+              <div class="text-sm font-medium text-gray-700 mb-2">סטטוס הערכה תקופתית</div>
+              <div class="space-y-1.5">${infoItems.join('')}</div>
+            </div>
+          `;
+        } else {
+          banner.innerHTML = '';
+        }
       }
-      if (state.hasFinal && !state.hasApproved) {
-        parts.push(`<div class="text-xs text-amber-800">⏳ הערכה עצמית הוגשה ל-${state.quarterId}, ממתינה לאישור PD</div>`);
-      }
-      banner.innerHTML = parts.length === 0 ? '' : `
-        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-          <div class="text-sm font-semibold text-amber-900 mb-2">פעולות נדרשות</div>
-          <div class="space-y-1.5">${parts.join('')}</div>
-          <div class="mt-2"><button onclick="navigateTo('resident-self')" class="text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">פתח הערכה תקופתית ←</button></div>
-        </div>
-      `;
     }
   } catch (e) { console.warn('Pending banner error:', e); }
 
@@ -4327,7 +4492,7 @@ function renderEvalStatus() {
       const ts = new Date(h.timestamp || h.date || 0).getTime();
       const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
       const daysAgo = Math.max(0, Math.round((now - ts) / (24*60*60*1000)));
-      const typeLabel = h.type === 'macro' ? 'תקופתית' : h.selfAssessment ? 'עצמית' : 'מיידית';
+      const typeLabel = _evalTypeLabel(h);  // v2.10.9: precise labels
       const isDraft = h.subType === 'draft';
       const isSelfAssessment = !!h.selfAssessment;
       // Find origIdx in rawHistory for draft deletion
@@ -4439,7 +4604,7 @@ function renderEvalStatus() {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-medium">${r.isSelfAssessment ? (r.categoryLabel || r.category || 'הערכה עצמית') : (r.residentName || '—')}</span>
-                  <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.type === 'macro' ? 'תקופתית' : 'משוב מהיר'}${r.isSelfAssessment ? ' · עצמית' : ''}</span>
+                  <span class="text-xs ${_evalTypeBg(r)} px-2 py-0.5 rounded-full">${_evalTypeLabel(r)}</span>
                   ${r.isDraft ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">${r.type === 'macro' && r.mode === 'pd' ? 'טיוטת סיכום סופי' : 'טיוטא'}</span>` : ''}
                   ${r.quarterId ? `<span class="text-xs text-gray-400">${r.quarterId}</span>` : ''}
                 </div>
@@ -4510,6 +4675,14 @@ function _clearEvalDateRange() { _clearEvalFilters(); }
 // PD sees all residents (with selector), Resident sees own only
 // ═══════════════════════════════════════════════════════════════════
 let _portfolioSelectedResident = null;
+// v2.10.10: portfolio KPI-tile filters — 'all' | 'micro' | 'macro' | 'self'
+let _portfolioFilter = 'all';
+function _portfolioSetFilter(f) {
+  _portfolioFilter = (_portfolioFilter === f && f !== 'all') ? 'all' : f;
+  // Re-render whichever portfolio view is active
+  if (currentScreen === 'pd-portfolio') renderPortfolio('pd');
+  else renderPortfolio('resident');
+}
 
 function renderPortfolio(viewer) {
   viewer = viewer || 'pd';
@@ -4561,11 +4734,18 @@ function renderPortfolio(viewer) {
   // Sort newest first
   allEvals.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0));
 
-  // ── Stats ──
+  // ── Stats (computed from FULL set, not filtered) ──
   const microCount = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment).length;
   const macroCount = allEvals.filter(e => e.type === 'macro').length;
   const selfCount = allEvals.filter(e => e.selfAssessment).length;
   const totalCount = allEvals.length;
+
+  // v2.10.10: apply KPI-tile filter to the displayed list
+  const _allEvalsUnfiltered = allEvals;
+  let displayEvals = allEvals;
+  if (_portfolioFilter === 'micro')      displayEvals = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment);
+  else if (_portfolioFilter === 'macro') displayEvals = allEvals.filter(e => e.type === 'macro');
+  else if (_portfolioFilter === 'self')  displayEvals = allEvals.filter(e => e.selfAssessment);
 
   // Average EPA score from micro evals
   const microWithScores = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment && e.epaScores);
@@ -4613,23 +4793,24 @@ function renderPortfolio(viewer) {
         </div>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+        <!-- v2.10.10: KPI tiles are now clickable filters -->
+        <button onclick="_portfolioSetFilter('all')" class="bg-gray-50 rounded-lg p-2.5 text-center hover:bg-gray-100 transition border-2 ${_portfolioFilter === 'all' ? 'border-gray-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">סה"כ הערכות</div>
           <div class="text-xl font-semibold mt-0.5">${totalCount}</div>
-        </div>
-        <div class="bg-blue-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('micro')" class="bg-blue-50 rounded-lg p-2.5 text-center hover:bg-blue-100 transition border-2 ${_portfolioFilter === 'micro' ? 'border-blue-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">משובים מהירים</div>
           <div class="text-xl font-semibold text-blue-700 mt-0.5">${microCount}</div>
-        </div>
-        <div class="bg-purple-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('macro')" class="bg-purple-50 rounded-lg p-2.5 text-center hover:bg-purple-100 transition border-2 ${_portfolioFilter === 'macro' ? 'border-purple-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">תקופתיות</div>
           <div class="text-xl font-semibold text-purple-700 mt-0.5">${macroCount}</div>
-        </div>
-        <div class="bg-orange-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('self')" class="bg-orange-50 rounded-lg p-2.5 text-center hover:bg-orange-100 transition border-2 ${_portfolioFilter === 'self' ? 'border-orange-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">עצמיות</div>
           <div class="text-xl font-semibold text-orange-700 mt-0.5">${selfCount}</div>
-        </div>
-        <div class="bg-green-50 rounded-lg p-2.5 text-center">
+        </button>
+        <div class="bg-green-50 rounded-lg p-2.5 text-center border-2 border-transparent">
           <div class="text-xs text-gray-500">ממוצע EPA</div>
           <div class="text-xl font-semibold text-green-700 mt-0.5">${avgEpa}</div>
         </div>
@@ -4638,27 +4819,32 @@ function renderPortfolio(viewer) {
 
     <!-- ── Evaluation timeline ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
-      <div class="text-xs font-medium text-gray-500 uppercase mb-3">כל ההערכות — לפי תאריך</div>
-      ${allEvals.length === 0 ? `
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="text-xs font-medium text-gray-500 uppercase">
+          ${_portfolioFilter === 'all' ? 'כל ההערכות' : _portfolioFilter === 'micro' ? 'משובים מהירים' : _portfolioFilter === 'macro' ? 'הערכות תקופתיות' : 'הערכות עצמיות'}
+          — לפי תאריך (${displayEvals.length})
+        </div>
+        ${_portfolioFilter !== 'all' ? `<button onclick="_portfolioSetFilter('all')" class="text-xs text-purple-600 hover:underline">הצג הכל ×</button>` : ''}
+      </div>
+      ${displayEvals.length === 0 ? `
         <div class="text-center py-8">
           <div class="text-3xl mb-2">📋</div>
-          <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות עדיין</div>
-          <div class="text-xs text-gray-500">הערכות שיוגשו עבור מתמחה זה יופיעו כאן.</div>
+          <div class="text-sm font-medium text-gray-900 mb-1">${_allEvalsUnfiltered.length === 0 ? 'אין הערכות עדיין' : 'אין הערכות מסוג זה'}</div>
+          <div class="text-xs text-gray-500">${_allEvalsUnfiltered.length === 0 ? 'הערכות שיוגשו עבור מתמחה זה יופיעו כאן.' : 'נסה/י לסנן אחרת או לחץ "הצג הכל".'}</div>
         </div>
       ` : `
         <div class="space-y-2">
-          ${allEvals.map(e => {
+          ${displayEvals.map(e => {
             const ts = new Date(e.timestamp || e.date || 0);
             const dateStr = ts.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' });
             const isSelf = !!e.selfAssessment;
-            const typeLabel = e.type === 'macro' ? 'תקופתית' : isSelf ? 'עצמית' : 'מיידית';
-            const typeBg = e.type === 'macro' ? 'bg-purple-100 text-purple-700' : isSelf ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
+            const typeLabel = _evalTypeLabel(e);
+            const typeBg = _evalTypeBg(e);
             const catLabel = e.categoryLabel || e.category || '';
-            const scores = e.epaScores ? Object.values(e.epaScores) : [];
-            const scoreAvg = scores.length > 0 ? (scores.reduce((a,b) => a+b,0) / scores.length).toFixed(1) : null;
+            const microScores = e.epaScores ? Object.values(e.epaScores) : [];
+            const microScoreAvg = microScores.length > 0 ? (microScores.reduce((a,b) => a+b,0) / microScores.length).toFixed(1) : null;
             const evaluatorName = e.evaluatorName || e.attendingName || '';
             const feedback = e.visibleFeedback || e.reflection || '';
-            const feedbackShort = feedback.length > 80 ? feedback.slice(0, 80) + '...' : feedback;
             return `
               <details class="border border-gray-100 rounded-lg hover:border-gray-200 transition-colors">
                 <summary class="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
@@ -4669,17 +4855,14 @@ function renderPortfolio(viewer) {
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="text-xs ${typeBg} px-2 py-0.5 rounded-full">${typeLabel}</span>
                       ${catLabel ? `<span class="text-xs text-gray-500">${catLabel}</span>` : ''}
-                      ${scoreAvg ? `<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">EPA: ${scoreAvg}</span>` : ''}
+                      ${microScoreAvg ? `<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">EPA: ${microScoreAvg}</span>` : ''}
                     </div>
                     <div class="text-xs text-gray-400 mt-0.5">${dateStr}${evaluatorName ? ' · ' + evaluatorName : ''}</div>
                   </div>
                   <svg class="arrow w-4 h-4 text-gray-400 shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </summary>
-                <div class="px-3 pb-3 pt-1 border-t border-gray-50 text-xs text-gray-600">
-                  ${scores.length > 0 ? `<div class="mb-2"><span class="font-medium">ציוני EPA:</span> ${Object.entries(e.epaScores || {}).map(([k,v]) => `${k}: ${v}`).join(' · ')}</div>` : ''}
-                  ${feedback ? `<div class="mb-1"><span class="font-medium">${isSelf ? 'תובנה:' : 'משוב:'}</span> ${feedback}</div>` : ''}
-                  ${e.privateNotes ? `<div class="text-gray-400"><span class="font-medium">הערה פרטית:</span> ${escapeHtml(e.privateNotes)}</div>` : ''}
-                  ${!feedback && !scores.length ? '<div class="text-gray-400">אין פרטים נוספים</div>' : ''}
+                <div class="px-3 pb-3 pt-2 border-t border-gray-50 text-xs text-gray-700 space-y-2">
+                  ${_renderEvalDetailContent(e)}
                 </div>
               </details>
             `;
@@ -5698,7 +5881,25 @@ async function approveMacro() {
 
   // v2.9.10: confirm before final approval — irreversible action
   const cleanName = (residentName || '').replace(/^ד"ר\s+/, '').trim() || 'המתמחה';
-  if (!confirm(`לאשר את הסיכום הסופי של ${cleanName}?\n\nההערכה תופיע בתיק המתמחה ותהיה גלויה למתמחה. לא ניתן לערוך לאחר אישור.`)) {
+
+  // v2.10.3: detect existing approval by another PD (race condition)
+  let _existingApprovalConfirm = null;
+  try {
+    const _seedAll = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const _all = [..._getLocalHistory(), ..._seedAll];
+    _existingApprovalConfirm = _all.find(h =>
+      h.type === 'macro' && h.subType === 'pd_approved' &&
+      h.residentId === residentId && h.quarterId === quarterId
+    );
+  } catch (e) { /* ignore */ }
+
+  if (_existingApprovalConfirm && _existingApprovalConfirm.evaluatorId !== (currentUser?.id || '')) {
+    const prevPd = _existingApprovalConfirm.evaluatorName || 'PD אחר';
+    const prevDate = new Date(_existingApprovalConfirm.timestamp).toLocaleString('he-IL');
+    if (!confirm(`⚠️ אזהרה: הערכה זו כבר אושרה!\n\n${prevPd} אישר/ה את ההערכה ב-${prevDate}.\n\nאם תאשר/י שוב, הנתונים של ${prevPd} יוחלפו בנתונים שלך והם לא יוצגו יותר.\n\nהאם את/ה בטוח/ה שאתה רוצה להחליף את האישור הקיים?`)) {
+      return;
+    }
+  } else if (!confirm(`לאשר את הסיכום הסופי של ${cleanName}?\n\nההערכה תופיע בתיק המתמחה ותהיה גלויה למתמחה. לא ניתן לערוך לאחר אישור.`)) {
     return;
   }
   
@@ -5782,6 +5983,14 @@ async function approveMacro() {
       DEMO_SEED_EVALUATIONS.push({ ...approvedEntry, _devSeed: true });
       showToast('✅ הסיכום אושר ונשלח למתמחה (dev)', 'success');
       logToAudit('approve_macro_summary', { residentId, quarterId, dev: true });
+      // v2.10.4: closure popup + refresh form to show closure banner
+      _pdMacroEditUnlocked = false;
+      try {
+        const _appName = currentUser?.name || 'PD';
+        const _appTime = _fmtDateTimeHe(approvedEntry.timestamp);
+        setTimeout(() => alert(`🔒 ${_appName} סגר/ה את ההערכה ב-${_appTime}.\n\nהסיכום נשלח למתמחה ונוסף לתיק ההתמחות.`), 100);
+      } catch (e) { /* ignore */ }
+      renderMacroPdScreen();
     } catch (e) {
       console.error('Approve macro (dev) error:', e);
       showToast('שגיאה בשמירה מקומית', 'error');
@@ -5817,6 +6026,14 @@ async function approveMacro() {
       try { _saveToLocalHistory(approvedEntry); } catch (e) { /* ignore */ }
       showToast('✅ הסיכום אושר ונשלח למתמחה', 'success');
       logToAudit('approve_macro_summary', { residentId, quarterId });
+      // v2.10.4: closure popup + refresh form to show closure banner
+      _pdMacroEditUnlocked = false;
+      try {
+        const _appName = currentUser?.name || 'PD';
+        const _appTime = _fmtDateTimeHe(approvedEntry.timestamp);
+        setTimeout(() => alert(`🔒 ${_appName} סגר/ה את ההערכה ב-${_appTime}.\n\nהסיכום נשלח למתמחה ונוסף לתיק ההתמחות.`), 100);
+      } catch (e) { /* ignore */ }
+      renderMacroPdScreen();
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
       showToast('שגיאה: ' + msg, 'error');
@@ -6017,6 +6234,126 @@ const MACRO_DEMO_DATA = {
 let CURRENT_MACRO_RESIDENT_NAME = null;
 let CURRENT_MACRO_QUARTER_ID = null;
 
+// v2.10.4: PD macro screen subviews — tile-based dashboard
+// 'tiles' = top-level 5 status tiles (default landing)
+// 'list'  = list of residents filtered by a tile category
+// 'form'  = the original PD summary review/approve form
+let _pdMacroSubview = 'tiles';
+let _pdMacroTileFilter = null;  // 'pending' | 'approved' | 'drafts' | 'archive' | 'all'
+// When a previously-approved eval is being viewed, the form is LOCKED.
+// User must explicitly click "עדכן סיכום" to set this true and unlock save buttons.
+let _pdMacroEditUnlocked = false;
+let _pdMacroReadOnlyView = false;  // 'צפה בסיכום הקודם' — pure view mode (no Save buttons at all)
+
+// v2.10.4: classify a resident's PD macro status for the current quarter.
+// Status:
+//   'approved' — PD already approved final summary
+//   'draft'    — current PD has a draft saved (pd_draft subType) but not yet approved
+//   'pending'  — at least one final macro exists from attendings/self, but PD hasn't acted
+//   'no_evals' — no macro evals at all this quarter
+function _categorizePdMacroStatusForResident(residentObj, quarterId) {
+  if (!residentObj || !quarterId) return { status: 'no_evals' };
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    const rid = residentObj.id;
+    // Most recent approval for this resident+quarter (in case multiple PDs approved over time)
+    const approved = all
+      .filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === rid && h.quarterId === quarterId)
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))[0];
+    if (approved) {
+      return {
+        status: 'approved',
+        approvalDate: approved.timestamp || approved.date || null,
+        approverName: approved.evaluatorName || 'PD',
+        approverId: approved.evaluatorId || null,
+        record: approved
+      };
+    }
+    // Drafts by current PD
+    const myDrafts = all.filter(h =>
+      h.type === 'macro' && (h.subType === 'pd_draft' || h.subType === 'draft') &&
+      h.residentId === rid && h.quarterId === quarterId &&
+      (h.evaluatorId === (currentUser && currentUser.id) || h.evaluatorRole === 'pd')
+    );
+    if (myDrafts.length) {
+      const latest = myDrafts.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))[0];
+      return { status: 'draft', draftDate: latest.timestamp || null, record: latest };
+    }
+    // Final macros submitted by attendings or self → pending PD review
+    const hasFinals = all.some(h =>
+      h.type === 'macro' && h.subType === 'final' &&
+      h.residentId === rid && h.quarterId === quarterId
+    );
+    if (hasFinals) return { status: 'pending' };
+    return { status: 'no_evals' };
+  } catch (e) {
+    return { status: 'no_evals' };
+  }
+}
+
+// v2.10.4: returns array { resident, status, approvalDate, approverName, ... }
+// for ALL residents (used by "כל המתמחים" tile and to compute counts)
+function _listAllResidentsWithPdMacroStatus(quarterId) {
+  return RESIDENTS.map(r => {
+    const info = _categorizePdMacroStatusForResident(r, quarterId);
+    return { resident: r, ...info };
+  });
+}
+
+// Returns counts per tile {pending, approved, drafts, archive_count, total}
+function _countPdMacroByStatus(quarterId) {
+  const list = _listAllResidentsWithPdMacroStatus(quarterId);
+  let pending = 0, approved = 0, drafts = 0;
+  list.forEach(r => {
+    if (r.status === 'pending') pending++;
+    else if (r.status === 'approved') approved++;
+    else if (r.status === 'draft') drafts++;
+  });
+  // Archive count = total prior-quarter approvals across all residents
+  let archiveCount = 0;
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    archiveCount = all.filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.quarterId !== quarterId).length;
+  } catch (e) { /* ignore */ }
+  return { pending, approved, drafts, archive: archiveCount, total: RESIDENTS.length };
+}
+
+// v2.10.4: navigation helpers between subviews
+function _pdMacroGoToTiles()  { _pdMacroSubview = 'tiles';  _pdMacroTileFilter = null; _pdMacroEditUnlocked = false; _pdMacroReadOnlyView = false; renderMacroPdScreen(); }
+function _pdMacroGoToList(tile) { _pdMacroSubview = 'list';  _pdMacroTileFilter = tile; _pdMacroEditUnlocked = false; _pdMacroReadOnlyView = false; renderMacroPdScreen(); }
+function _pdMacroOpenForm(name, opts) {
+  CURRENT_MACRO_RESIDENT_NAME = name;
+  _pdMacroSubview = 'form';
+  _pdMacroEditUnlocked = !!(opts && opts.edit);
+  _pdMacroReadOnlyView = !!(opts && opts.view);
+  renderMacroPdScreen();
+}
+// v2.10.4 fix: open form by resident.id (stable, avoids name-escaping mismatch bugs)
+function _pdMacroOpenFormById(residentId, mode) {
+  const r = RESIDENTS.find(x => x.id === residentId);
+  if (!r) {
+    console.warn('[PD-Macro] Resident not found by id', residentId);
+    alert('שגיאה: לא הצלחנו לזהות את המתמחה הזה. רענן/י את המסך ונסה/י שוב.');
+    return;
+  }
+  CURRENT_MACRO_RESIDENT_NAME = r.name;
+  _pdMacroSubview = 'form';
+  _pdMacroEditUnlocked = false;
+  _pdMacroReadOnlyView = (mode === 'view');
+  renderMacroPdScreen();
+}
+
+// v2.10.4: format ISO date in Hebrew locale for display
+function _fmtDateTimeHe(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return iso; }
+}
+
 function listResidentsWithMacroEvalsForQuarter(quarterId) {
   // Build map of resident → submission count for this quarter
   // Merges DEMO_SEED_EVALUATIONS + localStorage history
@@ -6078,12 +6415,21 @@ function renderMacroPdScreen() {
     CURRENT_MACRO_QUARTER_ID = `${now.getFullYear()}-Q${q}`;
   }
 
+  // v2.10.4: route based on subview (tiles dashboard / list / form)
+  const isReadOnlyRole = currentRole === 'coordinator';
+  if (!isReadOnlyRole) {
+    if (_pdMacroSubview === 'tiles') { return _renderPdMacroTiles(target); }
+    if (_pdMacroSubview === 'list')  { return _renderPdMacroList(target);  }
+    // else: fall through to 'form' subview (original logic below)
+  }
+
   const availableResidents = listResidentsWithMacroEvalsForQuarter(CURRENT_MACRO_QUARTER_ID);
 
   // Empty state
   if (availableResidents.length === 0) {
     target.innerHTML = `
-      <div class="mb-5">
+      <div class="mb-4">
+        ${!isReadOnlyRole ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
         <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
         <p class="text-xs text-gray-500 mt-0.5">סיכום הערכות הבכירים והמתמחה — לאישור סופי</p>
       </div>
@@ -6106,7 +6452,8 @@ function renderMacroPdScreen() {
     const residentObj = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
     const pgyLabel = residentObj?.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][residentObj.pgy-1]}׳` : '';
     target.innerHTML = `
-      <div class="mb-5">
+      <div class="mb-4">
+        ${!isReadOnlyRole ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
         <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
         <p class="text-xs text-gray-500 mt-0.5">סיכום הערכות הבכירים והמתמחה — לאישור סופי</p>
       </div>
@@ -6142,8 +6489,29 @@ function renderMacroPdScreen() {
   const synthesis = generateMacroSynthesis(d);
   const isReadOnly = currentRole === 'coordinator';  // Coordinator can view but cannot approve
 
+  // v2.10.3: detect existing pd_approved for this resident+quarter (race detection)
+  // If found, show a yellow banner so the current PD knows they're about to REPLACE it.
+  let _existingApproval = null;
+  try {
+    const _seedAll = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const _all = [..._getLocalHistory(), ..._seedAll];
+    const _residentObj = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+    const _residentId = _residentObj?.id;
+    if (_residentId) {
+      _existingApproval = _all.find(h =>
+        h.type === 'macro' && h.subType === 'pd_approved' &&
+        h.residentId === _residentId && h.quarterId === CURRENT_MACRO_QUARTER_ID
+      );
+    }
+  } catch (e) { /* ignore */ }
+
+  // v2.10.4: in tiles-mode (PD/coordinator), show a back-to-tiles button at top
+  const _showBackBtn = !isReadOnly;
+  const _approvedByMe = _existingApproval && currentUser && _existingApproval.evaluatorId === currentUser.id;
+
   target.innerHTML = `
-    <div class="mb-5">
+    <div class="mb-4">
+      ${_showBackBtn ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
@@ -6152,6 +6520,31 @@ function renderMacroPdScreen() {
         ${isReadOnly ? '<span class="text-xs bg-pink-100 text-pink-700 px-2.5 py-1 rounded-full">תצוגה כרכזת</span>' : ''}
       </div>
     </div>
+
+    ${_existingApproval && !isReadOnly && !_pdMacroEditUnlocked ? `
+      <div class="bg-${_approvedByMe ? 'green' : 'amber'}-50 border-2 border-${_approvedByMe ? 'green' : 'amber'}-300 rounded-xl p-4 mb-4 macro-pd-closure-actions">
+        <div class="flex items-start gap-3 mb-3">
+          <span class="text-2xl shrink-0">${_approvedByMe ? '🔒' : '⚠️'}</span>
+          <div class="flex-1 text-xs">
+            <div class="font-semibold text-${_approvedByMe ? 'green' : 'amber'}-900 mb-1">
+              ${_approvedByMe ? 'הסיכום נסגר ואושר' : 'הערכה זו כבר אושרה ע״י PD אחר'}
+            </div>
+            <div class="text-${_approvedByMe ? 'green' : 'amber'}-800 leading-relaxed">
+              <strong>${escapeHtml(_existingApproval.evaluatorName || 'PD')}</strong>
+              אישר/ה את הסיכום ב-<strong>${_fmtDateTimeHe(_existingApproval.timestamp)}</strong>.
+              ${_approvedByMe
+                ? '<br>הסיכום סגור לעריכה. ניתן לצפות בו, לעדכן (יווצר אישור חדש) או לפתוח את התיק האישי.'
+                : '<br>אם תעדכן/י את הסיכום — האישור הקיים יוחלף ע״י שלך. <strong>מומלץ לתאם עם ה-PD שאישר/ה לפני שינוי.</strong>'}
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="_pdMacroUnlockForEdit()" class="text-xs ${_approvedByMe ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'} text-white px-3 py-1.5 rounded-lg">✎ עדכן סיכום</button>
+          <button onclick="_pdMacroOpenResidentPortfolio()" class="text-xs bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">📂 פתח תיק אישי</button>
+          <button onclick="_pdMacroGoToTiles()" class="text-xs bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">‹ חזרה לאריחים</button>
+        </div>
+      </div>
+    ` : ''}
 
     <!-- Resident selector -->
     <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
@@ -6372,6 +6765,228 @@ function renderMacroPdScreen() {
   `;
   // v2.9.10: wire live updates of the weighted final score when PD edits comp scores
   if (!isReadOnly) _wirePdScoreLiveUpdate();
+
+  // v2.10.4: if the eval is closed (already approved) and the user is NOT in edit-unlock mode,
+  // disable all inputs so the form acts like a read-only view of the previous approval.
+  // The closure banner above the form provides the unlock button.
+  try {
+    if (_pdMacroFormIsClosed()) {
+      _pdMacroLockFormInputs();
+    }
+  } catch (e) { console.warn('lock form failed', e); }
+}
+
+// v2.10.4 ─── PD Macro: Tiles Dashboard ──────────────────────────────────────
+function _renderPdMacroTiles(target) {
+  const qid = CURRENT_MACRO_QUARTER_ID;
+  const counts = _countPdMacroByStatus(qid);
+
+  const tile = (key, icon, title, count, color, desc) => `
+    <button onclick="_pdMacroGoToList('${key}')"
+            class="text-right bg-white rounded-xl border border-gray-200 p-4 hover:border-${color}-300 hover:shadow-sm transition cursor-pointer">
+      <div class="flex items-start justify-between mb-2">
+        <div class="w-10 h-10 rounded-lg bg-${color}-50 text-${color}-600 flex items-center justify-center text-lg">${icon}</div>
+        <div class="text-2xl font-semibold text-${color}-700">${count}</div>
+      </div>
+      <div class="text-sm font-medium text-gray-900 mb-0.5">${title}</div>
+      <div class="text-xs text-gray-500 leading-relaxed">${desc}</div>
+    </button>
+  `;
+
+  // v2.10.7: removed "טיוטות שלי" tile — drafts are now folded into "ממתינים לסיכום"
+  const pendingPlusDrafts = counts.pending + counts.drafts;
+  target.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">הערכות תקופתיות (PD)</h1>
+      <p class="text-xs text-gray-500 mt-0.5">ניהול סיכומי PD לרבעון <strong>${qid}</strong></p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-2 gap-3 mb-4">
+      ${tile('pending',  '◷',  'ממתינים לסיכום',  pendingPlusDrafts, 'amber',  'בכירים הגישו, אין עדיין אישור PD — כולל טיוטות שמורות בשמך')}
+      ${tile('approved', '✓',  'אושרו ברבעון',     counts.approved,   'green',  'הסיכום אושר ונחתם — סגור לשינוי ללא אישור PD חוזר')}
+      ${tile('archive',  '🗃', 'ארכיון',           counts.archive,    'gray',   'סיכומים מרבעונים קודמים')}
+      ${tile('all',      '👥', 'כל המתמחים',       counts.total,      'blue',   'רשימה מלאה עם סטטוס, תאריך אישור ומאשר')}
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+      💡 לחץ/י על אריח כדי לפתוח רשימה ולעבור לסיכום פרטני של מתמחה. אישור סיכום הוא פעולה לא הפיכה — לאחר אישור, הסיכום נסגר עד שתבחר/י לעדכן אותו במפורש.
+    </div>
+  `;
+}
+
+// v2.10.4 ─── PD Macro: Resident List filtered by tile ───────────────────────
+function _renderPdMacroList(target) {
+  const qid = CURRENT_MACRO_QUARTER_ID;
+  const filter = _pdMacroTileFilter || 'all';
+  const all = _listAllResidentsWithPdMacroStatus(qid);
+
+  let rows = [];
+  let titleLabel = '';
+  let emptyMsg = '';
+
+  if (filter === 'pending') {
+    // v2.10.7: pending tile now includes both fresh-pending AND drafts in progress
+    rows = all.filter(r => r.status === 'pending' || r.status === 'draft');
+    titleLabel = '◷ ממתינים לסיכום';
+    emptyMsg = 'אין כרגע הערכות שממתינות לסיכום PD ברבעון זה.';
+  } else if (filter === 'approved') {
+    rows = all.filter(r => r.status === 'approved');
+    titleLabel = '✓ אושרו ברבעון';
+    emptyMsg = 'עדיין לא אישרת אף סיכום ברבעון זה.';
+  } else if (filter === 'archive') {
+    rows = _buildArchiveRows(qid);
+    titleLabel = '🗃 ארכיון (רבעונים קודמים)';
+    emptyMsg = 'אין סיכומים מרבעונים קודמים.';
+  } else {  // 'all'
+    rows = all;
+    titleLabel = '👥 כל המתמחים';
+    emptyMsg = 'אין מתמחים ברשימה.';
+  }
+
+  const statusBadge = (status) => {
+    if (status === 'approved') return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ אושר</span>';
+    if (status === 'pending')  return '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">◷ ממתין</span>';
+    if (status === 'draft')    return '<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">✎ טיוטה</span>';
+    return '<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">— אין הערכות —</span>';
+  };
+
+  const isArchive = filter === 'archive';
+  const tableRows = rows.length === 0 ? '' : rows.map((r) => {
+    const isRow = isArchive;
+    const resident = isRow ? r.resident : r.resident;
+    const status = r.status || 'approved';
+    const pgyLabel = resident && resident.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][resident.pgy-1]}׳` : '';
+    const approvalCell = r.approvalDate
+      ? `<div class="text-xs text-gray-700">${_fmtDateTimeHe(r.approvalDate)}</div>
+         <div class="text-xs text-gray-400">${escapeHtml(r.approverName || '')}</div>`
+      : '<div class="text-xs text-gray-300">—</div>';
+    const quarterCell = isArchive ? `<td class="px-3 py-2.5 text-xs text-gray-600">${r.quarterId || '—'}</td>` : '';
+    const openLabel = status === 'approved' ? 'פתח (סגור)' : status === 'draft' ? 'המשך טיוטה' : 'פתח לסיכום';
+    const openIcon = status === 'approved' ? '🔒' : status === 'draft' ? '✎' : '→';
+    // v2.10.4 fix: pass resident.id (stable) instead of name (escaping/whitespace issues caused wrong resident to open)
+    const opts = status === 'approved' ? 'view' : 'normal';
+    return `
+      <tr class="border-b border-gray-100 hover:bg-gray-50">
+        <td class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            ${_renderUserAvatar(resident.id, resident.name, 'w-8 h-8')}
+            <div>
+              <div class="text-sm font-medium">${escapeHtml(resident.name)}</div>
+              <div class="text-xs text-gray-400">${pgyLabel}</div>
+            </div>
+          </div>
+        </td>
+        <td class="px-3 py-2.5">${statusBadge(status)}</td>
+        ${quarterCell}
+        <td class="px-3 py-2.5">${approvalCell}</td>
+        <td class="px-3 py-2.5 text-left">
+          <button onclick="_pdMacroOpenFormById('${escapeAttr(resident.id)}', '${opts}')"
+                  class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">
+            ${openIcon} ${openLabel}
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  target.innerHTML = `
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div>
+        <button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+        <h1 class="text-lg font-semibold">${titleLabel}</h1>
+        <p class="text-xs text-gray-500 mt-0.5">רבעון ${CURRENT_MACRO_QUARTER_ID} · ${rows.length} רשומות</p>
+      </div>
+    </div>
+
+    ${rows.length === 0 ? `
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <div class="text-3xl mb-2">📋</div>
+        <div class="text-sm text-gray-500">${emptyMsg}</div>
+      </div>
+    ` : `
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-gray-50">
+            <tr class="text-xs text-gray-500 uppercase">
+              <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+              <th class="px-3 py-2 text-right font-medium">סטטוס</th>
+              ${isArchive ? '<th class="px-3 py-2 text-right font-medium">רבעון</th>' : ''}
+              <th class="px-3 py-2 text-right font-medium">תאריך אישור / מאשר</th>
+              <th class="px-3 py-2 text-left font-medium">פעולה</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    `}
+  `;
+}
+
+// v2.10.4: build archive rows — one row per past approval (not per resident)
+function _buildArchiveRows(currentQid) {
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    return all
+      .filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.quarterId !== currentQid)
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .map(h => {
+        const r = RESIDENTS.find(x => x.id === h.residentId) || { name: h.residentName || '?', id: h.residentId };
+        return {
+          resident: r,
+          status: 'approved',
+          approvalDate: h.timestamp || h.date,
+          approverName: h.evaluatorName,
+          quarterId: h.quarterId,
+          record: h,
+        };
+      });
+  } catch (e) { return []; }
+}
+
+// v2.10.4: form-closure detection — true if the current resident+quarter has a pd_approved
+function _pdMacroFormIsClosed() {
+  if (_pdMacroEditUnlocked) return false;  // user explicitly unlocked
+  if (!CURRENT_MACRO_RESIDENT_NAME || !CURRENT_MACRO_QUARTER_ID) return false;
+  const resident = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+  if (!resident) return false;
+  const info = _categorizePdMacroStatusForResident(resident, CURRENT_MACRO_QUARTER_ID);
+  return info.status === 'approved';
+}
+
+// v2.10.4: lock form when viewing a closed eval (until "עדכן סיכום" is clicked)
+function _pdMacroLockFormInputs() {
+  const screen = document.getElementById('screen-pd-macro');
+  if (!screen) return;
+  screen.querySelectorAll('textarea, input[type="text"], input[type="number"], input[type="checkbox"], select').forEach(el => {
+    if (el.closest('.macro-pd-closure-actions')) return;  // don't disable action buttons inside banner
+    el.disabled = true;
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') el.classList.add('bg-gray-50');
+  });
+  // Hide save/approve buttons completely — only the closure banner buttons remain
+  screen.querySelectorAll('button[onclick*="saveDraftMacro"], button[onclick*="approveMacro"]').forEach(b => b.style.display = 'none');
+}
+
+function _pdMacroUnlockForEdit() {
+  if (!confirm('עדכון הסיכום ייצור אישור חדש שיחליף את האישור הקיים.\n\nהאישור הקודם יישאר ב-Drive כרישום היסטוריה, אבל הנתונים החדשים יהיו אלה שיוצגו במערכת.\n\nלהמשיך?')) return;
+  _pdMacroEditUnlocked = true;
+  _pdMacroReadOnlyView = false;
+  renderMacroPdScreen();
+}
+
+function _pdMacroOpenResidentPortfolio() {
+  // v2.10.5 fix: open the CURRENT resident in the PD portfolio view by setting the
+  // portfolio's own selector variable (_portfolioSelectedResident), which renderPortfolio reads.
+  // Previous version wrote to a stub window._pdPortfolioResidentId that nothing read → wrong resident opened.
+  try {
+    const resident = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+    if (resident) {
+      _portfolioSelectedResident = resident.id;
+    } else {
+      console.warn('[PD-Macro] Portfolio open: resident not found for', CURRENT_MACRO_RESIDENT_NAME);
+    }
+  } catch (e) { console.warn('Portfolio open failed', e); }
+  navigateTo('pd-portfolio');
 }
 
 function toggleAllAttendingComments() {
@@ -6885,6 +7500,220 @@ function _openMicroRequest(reqId) {
 // State per quarter is derived from localStorage + DEMO_SEED_EVALUATIONS.
 // ═══════════════════════════════════════════════════════════════════
 let _residentMacroSubview = 'tiles'; // 'tiles' | 'form' | 'archive'
+
+// v2.10.12: attending/PD macro-fill subview state — 'tiles' | 'form' | 'drafts' | 'all'
+let _attendingMacroSubview = 'tiles';
+
+// v2.10.12: compute attending/PD's macro-evaluation state
+//   - drafts: macro entries (any quarter) where evaluatorId=me AND subType=draft
+//   - allEvals: macro entries where evaluatorId=me (excluding pd_approved which is a separate flow)
+function _attendingMacroState() {
+  const uid = currentUser?.id;
+  if (!uid) return { drafts: [], allEvals: [] };
+  const history = _getLocalHistory();
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [...history, ...seedEvals].filter(h =>
+    h.type === 'macro' && h.evaluatorId === uid && h.subType !== 'pd_approved'
+  );
+  const drafts = all.filter(h => h.subType === 'draft');
+  const allEvals = all.slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
+  return { drafts, allEvals };
+}
+
+// v2.10.12: compute status string for a macro eval row (attending view)
+//   'draft' | 'closed' | 'closed_past_deadline'
+function _attendingMacroEvalStatus(e) {
+  if (e.subType === 'draft') return 'draft';
+  // Final submitted: check whether the originating eval-request deadline has passed
+  try {
+    if (e.residentId && e.quarterId) {
+      const reqs = _getEvalRequests().filter(r =>
+        r.residentId === e.residentId && r.quarterId === e.quarterId && r.deadline
+      );
+      const latestDeadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop();
+      if (latestDeadline) {
+        const lockTs = new Date(latestDeadline + 'T23:00:00').getTime();
+        if (Date.now() > lockTs) return 'closed_past_deadline';
+      }
+    }
+  } catch (ex) { /* ignore */ }
+  return 'closed';
+}
+
+function _attendingMacroStatusBadge(status) {
+  if (status === 'draft')                return '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">✎ טיוטה</span>';
+  if (status === 'closed_past_deadline') return '<span class="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">🔒 סגורה (לאחר דדליין)</span>';
+  return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ סגורה</span>';
+}
+
+// Nav helpers between subviews
+function _attendingMacroGoToTiles()  { _attendingMacroSubview = 'tiles';  renderScreen(); }
+function _attendingMacroOpenNew()    { _attendingMacroSubview = 'form';   renderScreen(); }
+function _attendingMacroGoToDrafts() { _attendingMacroSubview = 'drafts'; renderScreen(); }
+function _attendingMacroGoToAll()    { _attendingMacroSubview = 'all';    renderScreen(); }
+
+function _renderAttendingMacroTiles() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const draftCount = s.drafts.length;
+  const evalCount  = s.allEvals.length;
+
+  const tile = (icon, title, count, desc, action, color) => `
+    <button onclick="${action}"
+            class="bg-white rounded-xl border border-gray-200 p-4 text-right hover:border-${color}-300 hover:shadow-sm transition cursor-pointer">
+      <div class="flex items-start justify-between mb-2">
+        <div class="w-10 h-10 rounded-lg bg-${color}-50 text-${color}-600 flex items-center justify-center text-lg">${icon}</div>
+        <div class="text-2xl font-semibold text-${color}-700">${count}</div>
+      </div>
+      <div class="text-sm font-medium text-gray-900 mb-0.5">${title}</div>
+      <div class="text-xs text-gray-500 leading-relaxed">${desc}</div>
+    </button>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">הערכה תקופתית</h1>
+      <p class="text-xs text-gray-500 mt-0.5">בחר/י מה ברצונך לעשות. סטטוס ההערכות שלך כעת:</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <button onclick="_attendingMacroOpenNew()" class="bg-white rounded-xl border-2 border-blue-300 p-4 text-right hover:border-blue-500 hover:shadow transition cursor-pointer">
+        <div class="flex items-start justify-between mb-2">
+          <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">✏️</div>
+          <div class="text-blue-600 text-xl">→</div>
+        </div>
+        <div class="text-sm font-medium text-gray-900 mb-0.5">פתח הערכה חדשה</div>
+        <div class="text-xs text-gray-500 leading-relaxed">התחל הערכה תקופתית חדשה למתמחה</div>
+      </button>
+      ${tile('✎', 'טיוטות', draftCount, draftCount === 0 ? 'אין טיוטות שמורות' : 'טיוטות שמורות שלך — להמשיך', '_attendingMacroGoToDrafts()', 'amber')}
+      ${tile('📋', 'סטטוס כל ההערכות', evalCount, evalCount === 0 ? 'עוד לא מילאת הערכות תקופתיות' : 'הערכות שמילאת — טיוטה / סגורה / סגורה לאחר דדליין', '_attendingMacroGoToAll()', 'green')}
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+      💡 לחץ/י "פתח הערכה חדשה" כדי להתחיל הערכה חדשה למתמחה. טיוטות שלך נשמרות אוטומטית. הערכה שהוגשה נסגרת לעריכה (אלא אם הדדליין לא חלף).
+    </div>
+  `;
+}
+
+function _renderAttendingMacroDrafts() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const drafts = s.drafts;
+
+  const rows = drafts.length === 0 ? `
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">📋</div>
+      <div class="text-sm text-gray-500">אין טיוטות שמורות</div>
+    </div>
+  ` : `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr class="text-xs text-gray-500 uppercase">
+          <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+          <th class="px-3 py-2 text-right font-medium">רבעון</th>
+          <th class="px-3 py-2 text-right font-medium">נשמרה</th>
+          <th class="px-3 py-2 text-left font-medium">פעולה</th>
+        </tr></thead>
+        <tbody>
+        ${drafts.map(d => {
+          const rname = (d.residentName || '').replace(/^ד"ר\s+/, '') || '—';
+          const ts = d.timestamp ? _fmtDateTimeHe(d.timestamp) : '—';
+          // Find original index in localHistory so _continueDraft can locate it
+          const localHist = _getLocalHistory();
+          const idx = localHist.findIndex(h => h.timestamp === d.timestamp && h.residentId === d.residentId && h.evaluatorId === d.evaluatorId);
+          return `
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(rname)}</td>
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(d.quarterId || '—')}</td>
+              <td class="px-3 py-2.5 text-xs text-gray-500">${ts}</td>
+              <td class="px-3 py-2.5 text-left">
+                <button onclick="_continueAttendingDraft(${idx})" class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700">✎ המשך</button>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-4">
+      <button onclick="_attendingMacroGoToTiles()" class="text-xs text-blue-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+      <h1 class="text-lg font-semibold">✎ טיוטות שלי</h1>
+      <p class="text-xs text-gray-500 mt-0.5">הערכות תקופתיות שטרם הוגשו</p>
+    </div>
+    ${rows}
+  `;
+}
+
+function _renderAttendingMacroAllEvals() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const list = s.allEvals;
+
+  const body = list.length === 0 ? `
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">📋</div>
+      <div class="text-sm text-gray-500">לא מילאת עדיין הערכות תקופתיות</div>
+    </div>
+  ` : `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr class="text-xs text-gray-500 uppercase">
+          <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+          <th class="px-3 py-2 text-right font-medium">רבעון</th>
+          <th class="px-3 py-2 text-right font-medium">סטטוס</th>
+          <th class="px-3 py-2 text-right font-medium">תאריך</th>
+          <th class="px-3 py-2 text-left font-medium">פעולה</th>
+        </tr></thead>
+        <tbody>
+        ${list.map(e => {
+          const rname = (e.residentName || '').replace(/^ד"ר\s+/, '') || '—';
+          const status = _attendingMacroEvalStatus(e);
+          const badge = _attendingMacroStatusBadge(status);
+          const ts = e.timestamp ? _fmtDateTimeHe(e.timestamp) : '—';
+          const localHist = _getLocalHistory();
+          const idx = localHist.findIndex(h => h.timestamp === e.timestamp && h.residentId === e.residentId && h.evaluatorId === e.evaluatorId);
+          const actionBtn = status === 'draft'
+            ? `<button onclick="_continueAttendingDraft(${idx})" class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700">✎ המשך</button>`
+            : `<span class="text-xs text-gray-400">—</span>`;
+          return `
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(rname)}</td>
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(e.quarterId || '—')}</td>
+              <td class="px-3 py-2.5">${badge}</td>
+              <td class="px-3 py-2.5 text-xs text-gray-500">${ts}</td>
+              <td class="px-3 py-2.5 text-left">${actionBtn}</td>
+            </tr>
+          `;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-4">
+      <button onclick="_attendingMacroGoToTiles()" class="text-xs text-blue-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+      <h1 class="text-lg font-semibold">📋 סטטוס כל ההערכות</h1>
+      <p class="text-xs text-gray-500 mt-0.5">${list.length} הערכות תקופתיות שמילאת</p>
+    </div>
+    ${body}
+  `;
+}
+
+// v2.10.12: continue an attending draft — reuses the existing _continueDraft mechanism,
+// switches to the form subview, then triggers re-render.
+function _continueAttendingDraft(idx) {
+  _attendingMacroSubview = 'form';
+  if (typeof _continueDraft === 'function') _continueDraft(idx);
+  else renderScreen();
+}
+
 
 function _residentMacroState(mode) {
   const userId = currentUser?.id;
@@ -8681,6 +9510,12 @@ function renderSettings() {
   const isResident = currentRole === 'resident';
   const userName = currentUser?.name || 'משתמש';
 
+  // v2.10.5: profile section data — self-edit for English name + photo
+  const myId = currentUser?.id || '';
+  const myProfile = _getProfile(myId);
+  const myPhoto = myProfile.photoDataUrl || '';
+  const myNameEn = myProfile.nameEn || '';
+
   target.innerHTML = `
     <!-- Header -->
     <div class="mb-6">
@@ -8692,6 +9527,40 @@ function renderSettings() {
         העדפות אישיות עבור ${userName}. ההגדרות נשמרות במכשיר ומיושמות אוטומטית בכניסות הבאות.
       </p>
     </div>
+
+    <!-- v2.10.5: Profile section — self-edit photo + English name -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">👤</span>
+        <h2 class="text-base font-semibold">הפרופיל שלי</h2>
+      </div>
+      <p class="text-xs text-gray-500 leading-relaxed mb-4">תמונת פרופיל ושם באנגלית. שינויים פה משתקפים בכל המסכים שבהם אתה/את מוצג/ת — כולל מסך ניהול הנתונים של ה-PD.</p>
+      <div class="flex items-center gap-4 mb-4">
+        <div id="self-profile-photo-preview">
+          ${myPhoto
+            ? `<img src="${escapeAttr(myPhoto)}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`
+            : `<div class="w-20 h-20 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-lg font-semibold">${escapeHtml((userName||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</div>`}
+        </div>
+        <div class="flex-1">
+          <label class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 cursor-pointer inline-flex items-center gap-1">
+            <span>⤒</span> העלה תמונה
+            <input type="file" accept="image/*" class="hidden" onchange="_onSelfProfilePhotoChange(this)">
+          </label>
+          ${myPhoto ? '<button onclick="_clearSelfProfilePhoto()" class="text-xs text-red-600 hover:underline mr-2">הסר</button>' : ''}
+          <div class="text-xs text-gray-400 mt-1">JPG/PNG · עד 500KB</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">שם באנגלית</label>
+          <input id="self-name-en" type="text" value="${escapeAttr(myNameEn)}" placeholder="Roee Iluz" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+        </div>
+        <div class="flex items-end">
+          <button onclick="_saveSelfProfile()" class="w-full px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700">💾 שמור פרופיל</button>
+        </div>
+      </div>
+      <div class="text-xs text-amber-700 mt-3 bg-amber-50 rounded-lg p-2">⚠ שינוי תפקיד במערכת (מתמחה, בכיר, PD, מתמחה אחראי) הוא בסמכות PD בלבד דרך מסך "ניהול נתונים".</div>
+    </section>
 
     <!-- 1. Notifications (especially relevant for residents) -->
     <section class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
@@ -9569,29 +10438,43 @@ function renderStaffList() {
 function renderUserRow(u, currentTab, isPdViewer) {
   const isArchived = !!u.archivedAt;
   const bgClass = isArchived ? 'bg-gray-50 opacity-75' : (u.isDynamic ? 'bg-pink-50' : '');
-  
+
+  // v2.10.4: merge profile overlay (photo, additional roles, edited name/email)
+  const profile = _getProfile(u.id);
+  const displayName  = profile.name  || u.name;
+  const displayEmail = profile.email || u.email;
+  const displayStart = profile.start || u.start;
+  const additionalRoleLabels = (profile.additionalRoles || [])
+    .map(id => ADDITIONAL_ROLE_OPTIONS.find(o => o.id === id))
+    .filter(Boolean);
+
   const tags = [];
   if (u.isDemo) tags.push('<span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">DEMO</span>');
   if (u.isDynamic) tags.push('<span class="text-xs bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded">חדש</span>');
-  if (u.start) tags.push(`<span class="text-xs text-gray-400">${u.start}</span>`);
+  if (displayStart) tags.push(`<span class="text-xs text-gray-400">${displayStart}</span>`);
   if (u.promotedTo) tags.push(`<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">↑ ${u.promotedTo === 'attending' ? 'הועלה לבכיר' : u.promotedTo}</span>`);
+  if (profile.promotedTo) tags.push(`<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">↑ סומן ל-${profile.promotedTo === 'pd' ? 'PD' : 'בכיר'}</span>`);
   if (u.replacedBy && currentTab === 'archive') tags.push('<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">הוחלף</span>');
-  
+  additionalRoleLabels.forEach(opt => {
+    tags.push(`<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title="${escapeAttr(opt.label)}">${opt.icon} ${escapeHtml(opt.label)}</span>`);
+  });
+
   // Action buttons — depend on PD viewer + tab + user state
   let actions = '';
   if (isPdViewer) {
     if (currentTab === 'active' && !isArchived) {
+      // v2.10.5: removed standalone ↑ promote button — role change is now inside the edit modal
       actions = `
-        <button onclick="showArchiveUserModal('${u.id}', '${escapeAttr(u.name)}', '${u.role}')" 
+        <button onclick="showEditUserModal('${escapeAttr(u.id)}', '${escapeAttr(displayName)}', '${u.role}', '${escapeAttr(displayEmail || '')}', '${escapeAttr(displayStart || '')}')"
+                class="text-xs text-purple-600 hover:underline" title="עריכת נתונים">✎</button>
+        <button onclick="showArchiveUserModal('${u.id}', '${escapeAttr(displayName)}', '${u.role}')"
                 class="text-xs text-gray-600 hover:text-gray-900 hover:underline" title="העבר לארכיון">📦</button>
-        <button onclick="showReplaceUserModal('${u.id}', '${escapeAttr(u.name)}', '${u.role}')" 
+        <button onclick="showReplaceUserModal('${u.id}', '${escapeAttr(displayName)}', '${u.role}')"
                 class="text-xs text-blue-600 hover:underline" title="החלף בתפקיד">🔄</button>
-        ${u.role === 'resident' ? `<button onclick="showPromoteResidentModal('${u.id}', '${escapeAttr(u.name)}', '${escapeAttr(u.email || '')}')" 
-                class="text-xs text-purple-600 hover:underline" title="קדם לבכיר">↑</button>` : ''}
       `;
     } else if (currentTab === 'archive' && isArchived) {
       actions = `
-        <button onclick="restoreUserFromArchive('${u.id}', '${escapeAttr(u.name)}')" 
+        <button onclick="restoreUserFromArchive('${u.id}', '${escapeAttr(displayName)}')"
                 class="text-xs text-green-600 hover:underline" title="שחזר לפעיל">♻ החזר</button>
       `;
     }
@@ -9609,11 +10492,12 @@ function renderUserRow(u, currentTab, isPdViewer) {
   return `
     <div class="px-2 py-1.5 hover:bg-white rounded text-xs ${bgClass}">
       <div class="flex items-center gap-2">
-        <span class="flex-1">
-          ${u.name}
-          ${tags.length > 0 ? ' ' + tags.join(' ') : ''}
+        ${_renderUserAvatar(u.id, displayName, 'w-7 h-7')}
+        <span class="flex-1 flex flex-wrap items-center gap-1">
+          <span>${escapeHtml(displayName)}</span>
+          ${tags.length > 0 ? tags.join(' ') : ''}
         </span>
-        <span class="text-gray-400 text-xs" style="direction:ltr">${u.email || '—'}</span>
+        <span class="text-gray-400 text-xs" style="direction:ltr">${escapeHtml(displayEmail || '—')}</span>
         <div class="flex items-center gap-1.5 shrink-0">${actions}</div>
       </div>
       ${archiveInfo}
@@ -9623,6 +10507,332 @@ function renderUserRow(u, currentTab, isPdViewer) {
 
 function escapeAttr(s) {
   return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v2.10.4 — USER PROFILES (Edit User overlay)
+// Stores per-user overlay data: photo (data URL), additional roles,
+// edited name/email/start, etc. Keyed by user.id. Survives across sessions
+// in localStorage. In prod, this should sync to backend via update_user action.
+// ═══════════════════════════════════════════════════════════════════
+const USER_PROFILES_KEY = 'cbme_user_profiles';
+
+// Available additional-role tags. Editable by PD per user.
+const ADDITIONAL_ROLE_OPTIONS = [
+  { id: 'tutor',         label: 'נע"ת (טיוטור)',           icon: '👨‍🏫' },
+  { id: 'on_call_mgr',   label: 'אחראי סידור תורנויות',    icon: '📅' },
+  { id: 'research_lead', label: 'אחראי מחקר',              icon: '🔬' },
+  { id: 'teaching_lead', label: 'אחראי הוראה',             icon: '📚' },
+  { id: 'simulation',    label: 'אחראי סימולציה',         icon: '🧠' },
+  { id: 'qa_lead',       label: 'אחראי איכות',            icon: '⚙' },
+  { id: 'pd_right_hand', label: 'יד ימין של PD',          icon: '⭐' },
+];
+
+function _getUserProfiles() {
+  try { return JSON.parse(localStorage.getItem(USER_PROFILES_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function _saveUserProfiles(obj) {
+  try { return safeSetItem(USER_PROFILES_KEY, JSON.stringify(obj)); }
+  catch (e) { console.warn('User profiles save failed:', e); return false; }
+}
+function _getProfile(userId) {
+  if (!userId) return {};
+  return _getUserProfiles()[userId] || {};
+}
+function _patchProfile(userId, patch) {
+  const all = _getUserProfiles();
+  all[userId] = { ...(all[userId] || {}), ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.id || null };
+  return _saveUserProfiles(all);
+}
+
+// Renders avatar — uses photo if present in profile, else initials
+function _renderUserAvatar(userId, userName, sizeClass) {
+  sizeClass = sizeClass || 'w-10 h-10';
+  const profile = _getProfile(userId);
+  const initials = (userName || '?').split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('');
+  if (profile.photoDataUrl) {
+    return `<img src="${escapeAttr(profile.photoDataUrl)}" alt="${escapeHtml(userName || '')}" class="${sizeClass} rounded-full object-cover border border-gray-200">`;
+  }
+  return `<div class="${sizeClass} rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-semibold">${escapeHtml(initials)}</div>`;
+}
+
+// Returns array of additional-role IDs assigned to a user
+function _getUserAdditionalRoles(userId) {
+  return _getProfile(userId).additionalRoles || [];
+}
+function _getUserAdditionalRoleLabels(userId) {
+  const ids = _getUserAdditionalRoles(userId);
+  return ids.map(id => ADDITIONAL_ROLE_OPTIONS.find(o => o.id === id)).filter(Boolean);
+}
+
+function showEditUserModal(userId, userName, userRole, userEmail, userStart) {
+  const profile = _getProfile(userId);
+  // Effective values: profile override or fallback to passed-in
+  const eName  = profile.name  || userName  || '';
+  const eEmail = profile.email || userEmail || '';
+  const eStart = profile.start || userStart || '';
+  const ePhoto = profile.photoDataUrl || '';
+  const eAdditionalRoles = profile.additionalRoles || [];
+  const isResident = userRole === 'resident';
+
+  const modal = document.createElement('div');
+  modal.id = 'edit-user-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl p-5 max-w-lg w-full my-8 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl">✎</span>
+        <h3 class="text-base font-semibold">עריכת משתמש/ת</h3>
+      </div>
+
+      <!-- Photo -->
+      <div class="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+        <div id="edit-user-photo-preview">
+          ${ePhoto
+            ? `<img src="${escapeAttr(ePhoto)}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`
+            : `<div class="w-20 h-20 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-lg font-semibold">${escapeHtml((eName||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</div>`}
+        </div>
+        <div class="flex-1">
+          <div class="text-xs text-gray-700 font-medium mb-1">תמונת פרופיל</div>
+          <label class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 cursor-pointer inline-flex items-center gap-1">
+            <span>⤒</span> העלה תמונה
+            <input type="file" accept="image/*" class="hidden" onchange="_onEditUserPhotoChange(this)">
+          </label>
+          ${ePhoto ? '<button onclick="_clearEditUserPhoto()" class="text-xs text-red-600 hover:underline mr-2">הסר</button>' : ''}
+          <div class="text-xs text-gray-400 mt-1">JPG/PNG · עד 500KB · פרופורציה מומלצת 1:1</div>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">שם מלא</label>
+          <input id="edit-user-name" type="text" value="${escapeAttr(eName)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">אימייל</label>
+          <input id="edit-user-email" type="email" value="${escapeAttr(eEmail)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+        </div>
+        ${isResident ? `
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">תחילת התמחות (YYYY-MM)</label>
+          <input id="edit-user-start" type="text" value="${escapeAttr(eStart)}" placeholder="2024-09" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+          <div id="edit-user-pgy-hint" class="text-xs text-gray-500 mt-1"></div>
+        </div>
+        ` : ''}
+
+        <!-- Additional Roles -->
+        <div class="border-t border-gray-100 pt-3">
+          <label class="text-xs font-medium text-gray-700 block mb-2">תפקידים נוספים</label>
+          <div class="grid grid-cols-2 gap-2">
+            ${ADDITIONAL_ROLE_OPTIONS.map(opt => `
+              <label class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                <input type="checkbox" class="edit-user-add-role" data-role-id="${opt.id}" ${eAdditionalRoles.includes(opt.id) ? 'checked' : ''}>
+                <span class="text-xs">${opt.icon} ${opt.label}</span>
+              </label>
+            `).join('')}
+          </div>
+          <div class="text-xs text-gray-400 mt-2">מסומן = המשתמש/ת ממלא/ת את התפקיד הזה כעת.</div>
+
+          <!-- v2.10.5: 2 free-text custom role fields -->
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs font-medium text-gray-600 block mb-1">תפקיד חופשי #1</label>
+              <input id="edit-user-custom-role-1" type="text" value="${escapeAttr(profile.customRole1 || '')}" placeholder="לדוגמה: רכז/ת סבב חוץ" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600 block mb-1">תפקיד חופשי #2</label>
+              <input id="edit-user-custom-role-2" type="text" value="${escapeAttr(profile.customRole2 || '')}" placeholder="לדוגמה: אחראי טופס 17" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+            </div>
+          </div>
+        </div>
+
+        <!-- v2.10.5: 4 role-change buttons (replaces single promote button) -->
+        <div class="border-t border-gray-100 pt-3">
+          <label class="text-xs font-medium text-gray-700 block mb-2">שינוי תפקיד במערכת</label>
+          <div class="text-xs text-gray-500 mb-2">תפקיד נוכחי: <strong>${_roleHe(userRole)}</strong></div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'attending')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'attending' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-amber-400">🩺 בכיר</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'pd')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'pd' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-purple-400">⭐ PD</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'resident')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'resident' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-blue-400">👨‍⚕️ מתמחה</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'chief')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'chief' ? 'border-pink-500 bg-pink-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-pink-400">👑 מתמחה אחראי</button>
+          </div>
+          <div class="text-xs text-gray-400 mt-2">לחיצה תפתח אישור. השינוי יעביר את המשתמש/ת לקטגוריה החדשה במערכת.</div>
+        </div>
+
+        <div id="edit-user-error" class="text-xs text-red-600 hidden bg-red-50 border border-red-200 rounded-lg p-2"></div>
+      </div>
+
+      <div class="flex gap-2 mt-5">
+        <button onclick="document.getElementById('edit-user-modal').remove()" class="flex-1 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">ביטול</button>
+        <button onclick="submitEditUser('${escapeAttr(userId)}', '${escapeAttr(userRole)}')" class="flex-1 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 font-medium">💾 שמור נתונים</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Live PGY hint for residents
+  if (isResident) {
+    const startInput = document.getElementById('edit-user-start');
+    const updateHint = () => {
+      const val = startInput.value.trim();
+      const hintEl = document.getElementById('edit-user-pgy-hint');
+      if (!hintEl) return;
+      if (!val || !/^\d{4}-\d{2}$/.test(val)) { hintEl.textContent = ''; return; }
+      const [y, m] = val.split('-').map(Number);
+      const today = new Date();
+      const months = (today.getFullYear() - y) * 12 + (today.getMonth() - (m - 1));
+      if (months < 0) hintEl.textContent = '📅 תאריך עתידי';
+      else {
+        const pgy = Math.min(Math.floor(months / 12) + 1, 6);
+        hintEl.textContent = `📊 PGY ${pgy} (שנה ${['א','ב','ג','ד','ה','ו'][pgy-1]}׳)`;
+      }
+    };
+    startInput.addEventListener('input', updateHint);
+    updateHint();
+  }
+}
+
+// Read file → data URL → store in modal (not persisted yet)
+function _onEditUserPhotoChange(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 500 * 1024) {
+    alert('התמונה גדולה מ-500KB. אנא בחר/י תמונה קטנה יותר.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    window._editUserPhotoDataUrl = dataUrl;
+    const preview = document.getElementById('edit-user-photo-preview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _clearEditUserPhoto() {
+  window._editUserPhotoDataUrl = '__CLEAR__';
+  const preview = document.getElementById('edit-user-photo-preview');
+  if (preview) preview.innerHTML = `<div class="w-20 h-20 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">ללא תמונה</div>`;
+}
+
+// v2.10.5: Self-profile editing from Settings screen
+function _onSelfProfilePhotoChange(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 500 * 1024) {
+    alert('התמונה גדולה מ-500KB. אנא בחר/י תמונה קטנה יותר.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    window._selfProfilePhotoDataUrl = dataUrl;
+    const preview = document.getElementById('self-profile-photo-preview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _clearSelfProfilePhoto() {
+  window._selfProfilePhotoDataUrl = '__CLEAR__';
+  const preview = document.getElementById('self-profile-photo-preview');
+  if (preview) preview.innerHTML = `<div class="w-20 h-20 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">ללא תמונה</div>`;
+}
+
+function _saveSelfProfile() {
+  const myId = currentUser?.id;
+  if (!myId) { showToast('שגיאה: לא הצלחנו לזהות אותך', 'error'); return; }
+  const nameEn = (document.getElementById('self-name-en')?.value || '').trim();
+  const patch = { nameEn };
+  if (window._selfProfilePhotoDataUrl === '__CLEAR__') patch.photoDataUrl = null;
+  else if (typeof window._selfProfilePhotoDataUrl === 'string' && window._selfProfilePhotoDataUrl.startsWith('data:image')) patch.photoDataUrl = window._selfProfilePhotoDataUrl;
+  const ok = _patchProfile(myId, patch);
+  if (!ok) { showToast('שגיאה בשמירה — ייתכן שאחסון מקומי מלא', 'error'); return; }
+  window._selfProfilePhotoDataUrl = null;
+  showToast('✅ הפרופיל שלך נשמר. השינויים יופיעו בכל המסכים.', 'success');
+  renderSettings();
+}
+
+// v2.10.5: role labels in Hebrew
+function _roleHe(role) {
+  return ({pd:'מנהל/ת תוכנית', coordinator:'רכזת תוכנית', attending:'רופא/ה בכיר/ה', chief:'מתמחה אחראי/ת', resident:'מתמחה'})[role] || role;
+}
+
+// v2.10.5: 4-button role change — generic
+function _changeUserRole(userId, userName, newRole) {
+  const profile = _getProfile(userId);
+  const currentRoleId = profile.roleOverride || _getStaticRole(userId);
+  if (currentRoleId === newRole) {
+    alert(`${userName} כבר במצב "${_roleHe(newRole)}".`);
+    return;
+  }
+  const fromLabel = _roleHe(currentRoleId);
+  const toLabel = _roleHe(newRole);
+  if (!confirm(`האם את/ה בטוח/ה שברצונך לשנות את התפקיד של ${userName}?\n\nמ-${fromLabel}\nל-${toLabel}\n\nהשינוי יעביר את המשתמש/ת לקטגוריה החדשה במערכת ויעדכן את ההרשאות וההצגות. במצב dev: שמירה מקומית בלבד. במצב prod: יכנס לתוקף לאחר עדכון בקאנד (USERS array).`)) return;
+  _patchProfile(userId, { roleOverride: newRole, roleOverrideAt: new Date().toISOString() });
+  showToast(`✅ ${userName} סומן/ה לתפקיד ${toLabel}.`, 'success');
+  const modal = document.getElementById('edit-user-modal');
+  if (modal) modal.remove();
+  if (currentScreen === 'pd-data') renderDataManagementScreen();
+}
+
+// Returns the static role from USERS/STAFF lookup
+function _getStaticRole(userId) {
+  for (const role of ['pd','coordinator','attending','chief']) {
+    if ((STAFF[role] || []).some(u => u.id === userId)) return role;
+  }
+  if (RESIDENTS_RAW.some(r => 'r_' + r.name.replace(/[^א-ת]/g, '') === userId)) return 'resident';
+  const dyn = DYNAMIC_USERS.find(u => u.id === userId);
+  if (dyn) return dyn.role;
+  return null;
+}
+
+async function submitEditUser(userId, userRole) {
+  const errEl = document.getElementById('edit-user-error');
+  errEl.classList.add('hidden');
+
+  const name  = document.getElementById('edit-user-name').value.trim();
+  const email = document.getElementById('edit-user-email').value.trim().toLowerCase();
+  const startEl = document.getElementById('edit-user-start');
+  const start = startEl ? startEl.value.trim() : '';
+
+  if (!name) { errEl.textContent = 'שם חובה'; errEl.classList.remove('hidden'); return; }
+  if (email && !email.includes('@')) { errEl.textContent = 'אימייל לא תקין'; errEl.classList.remove('hidden'); return; }
+  if (userRole === 'resident' && start && !/^\d{4}-\d{2}$/.test(start)) {
+    errEl.textContent = 'תחילת התמחות בפורמט YYYY-MM'; errEl.classList.remove('hidden'); return;
+  }
+
+  // Gather additional roles + custom free-text roles
+  const additionalRoles = Array.from(document.querySelectorAll('.edit-user-add-role:checked')).map(cb => cb.dataset.roleId);
+  const customRole1 = (document.getElementById('edit-user-custom-role-1')?.value || '').trim();
+  const customRole2 = (document.getElementById('edit-user-custom-role-2')?.value || '').trim();
+
+  // Build patch
+  const patch = { name, email, additionalRoles, customRole1, customRole2 };
+  if (start) patch.start = start;
+
+  // Photo update — only if user changed it via the file picker
+  if (window._editUserPhotoDataUrl === '__CLEAR__') {
+    patch.photoDataUrl = null;
+  } else if (typeof window._editUserPhotoDataUrl === 'string' && window._editUserPhotoDataUrl.startsWith('data:image')) {
+    patch.photoDataUrl = window._editUserPhotoDataUrl;
+  }
+
+  const ok = _patchProfile(userId, patch);
+  if (!ok) {
+    errEl.textContent = 'שגיאה בשמירה — ייתכן שאחסון מקומי מלא'; errEl.classList.remove('hidden'); return;
+  }
+
+  // Cleanup pending photo state
+  window._editUserPhotoDataUrl = null;
+
+  showToast(`✅ ${name} עודכן/ה`, 'success');
+  document.getElementById('edit-user-modal').remove();
+  if (currentScreen === 'pd-data') renderDataManagementScreen();
 }
 
 // v2.9.20: Global HTML escape utility — use whenever interpolating user-controlled
@@ -9638,6 +10848,98 @@ function escapeHtml(s) {
 }
 // Short alias for readability inside dense template literals
 const esc = escapeHtml;
+
+// v2.10.10: render expanded content for a portfolio eval row.
+// Handles all eval types: micro (EPA scores + feedback), macro attending/self (competencies + comments),
+// macro PD approved (visibleFeedback + recommendation + goals + improvePoints + competency notes).
+function _renderEvalDetailContent(e) {
+  const parts = [];
+
+  // ── Micro eval: EPA scores ──
+  if (e.epaScores && Object.keys(e.epaScores).length) {
+    const pretty = Object.entries(e.epaScores).map(([k,v]) => `<span class="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">${escapeHtml(k)}: ${v}</span>`).join('');
+    parts.push(`<div><div class="font-medium text-gray-600 mb-1">ציוני EPA</div>${pretty}</div>`);
+  }
+
+  // ── Macro: competencies map (score + comment per ACGME area) ──
+  if (e.competencies && Object.keys(e.competencies).length) {
+    const COMP_LABELS = (typeof ACGME_COMPETENCIES !== 'undefined' && Array.isArray(ACGME_COMPETENCIES))
+      ? Object.fromEntries(ACGME_COMPETENCIES.map(c => [c.key, c.short || c.label || c.key])) : {};
+    const rows = Object.entries(e.competencies)
+      .filter(([k, v]) => v && (v.score !== null && v.score !== undefined) || (v && v.comment))
+      .map(([k, v]) => {
+        const label = COMP_LABELS[k] || k.toUpperCase();
+        const scoreBadge = (v.score !== null && v.score !== undefined && !isNaN(v.score))
+          ? `<span class="inline-block bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs">${Number(v.score).toFixed(1)}/5</span>`
+          : '';
+        const comment = v.comment ? `<div class="text-gray-700 mt-1">${escapeHtml(v.comment)}</div>` : '';
+        return `<div class="border-b border-gray-50 py-1.5"><div class="flex items-center gap-2"><strong>${escapeHtml(label)}</strong>${scoreBadge}</div>${comment}</div>`;
+      });
+    if (rows.length) parts.push(`<div><div class="font-medium text-gray-600 mb-1">לפי קומפטנציה</div>${rows.join('')}</div>`);
+  }
+
+  // ── PD-approved summary: recommendation, goals, improve points ──
+  if (e.recommendation) parts.push(`<div><span class="font-medium text-gray-600">המלצה כוללת:</span> ${escapeHtml(e.recommendation)}</div>`);
+  if (e.improvePoints)  parts.push(`<div><span class="font-medium text-gray-600">נקודות לשיפור:</span><div class="whitespace-pre-wrap text-gray-700 mt-0.5">${escapeHtml(e.improvePoints)}</div></div>`);
+  if (e.goals)          parts.push(`<div><span class="font-medium text-gray-600">יעדים לתקופה הבאה:</span><div class="whitespace-pre-wrap text-gray-700 mt-0.5">${escapeHtml(e.goals)}</div></div>`);
+
+  // ── General visible feedback (micro feedback OR PD approved overall summary OR self reflection) ──
+  const feedback = e.visibleFeedback || e.reflection;
+  if (feedback) {
+    const label = e.subType === 'pd_approved' ? 'סיכום מנהלת תוכנית' : (e.selfAssessment ? 'תובנה אישית' : 'משוב הבכיר');
+    parts.push(`<div><div class="font-medium text-gray-600 mb-0.5">${label}</div><div class="whitespace-pre-wrap text-gray-700">${escapeHtml(feedback)}</div></div>`);
+  }
+
+  // ── Raw textarea comments (macro evaluations save them by competency-block index) ──
+  if (Array.isArray(e.comments) && e.comments.length) {
+    const nonEmpty = e.comments.filter(c => c && c.value && c.value.trim());
+    if (nonEmpty.length && !e.competencies) {  // only show raw comments if competencies wasn't shown
+      parts.push(`<div><div class="font-medium text-gray-600 mb-1">הערות</div>${nonEmpty.map(c => `<div class="text-gray-700 border-r-2 border-gray-200 pr-2 mb-1">${escapeHtml(c.value)}</div>`).join('')}</div>`);
+    }
+  }
+
+  // ── Private note (visible only to PD/coordinator viewing, but always rendered if present) ──
+  if (e.privateNote || e.privateNotes) {
+    parts.push(`<div class="text-gray-500 bg-gray-50 rounded p-2"><span class="font-medium">הערה פרטית:</span> ${escapeHtml(e.privateNote || e.privateNotes)}</div>`);
+  }
+
+  if (parts.length === 0) return '<div class="text-gray-400">אין פרטים נוספים</div>';
+  return parts.join('');
+}
+
+// v2.10.9: precise eval type labels for portfolio / history rows
+// Categories:
+//   macro + pd_approved      → "הערכה מסכמת PD"           (purple)
+//   macro + resident self    → "הערכה תקופתית עצמית"     (orange)
+//   macro + draft (anyone)   → "טיוטת הערכה תקופתית"       (amber)
+//   macro + attending/final  → "הערכה תקופתית"            (purple)
+//   micro + self             → "משוב מהיר עצמי"           (orange)
+//   micro + attending        → "משוב מהיר"                (blue)
+function _evalTypeLabel(e) {
+  if (!e) return '';
+  const isSelf = !!(e.selfAssessment || e.isSelfAssessment || e.evaluatorRole === 'resident');
+  if (e.type === 'macro') {
+    if (e.subType === 'pd_approved') return 'הערכה מסכמת PD';
+    if (e.subType === 'draft' || e.isDraft)        return 'טיוטת הערכה תקופתית';
+    if (isSelf)                       return 'הערכה תקופתית עצמית';
+    return 'הערכה תקופתית';
+  }
+  // micro (and everything else)
+  if (isSelf) return 'משוב מהיר עצמי';
+  return 'משוב מהיר';
+}
+function _evalTypeBg(e) {
+  if (!e) return 'bg-gray-100 text-gray-600';
+  const isSelf = !!(e.selfAssessment || e.isSelfAssessment || e.evaluatorRole === 'resident');
+  if (e.type === 'macro') {
+    if (e.subType === 'pd_approved') return 'bg-purple-100 text-purple-700';
+    if (e.subType === 'draft' || e.isDraft)        return 'bg-amber-100 text-amber-700';
+    if (isSelf)                       return 'bg-orange-100 text-orange-700';
+    return 'bg-purple-100 text-purple-700';
+  }
+  if (isSelf) return 'bg-orange-100 text-orange-700';
+  return 'bg-blue-100 text-blue-700';
+}
 
 // v2.10.1: defensive localStorage wrapper — quota errors and serialization
 // failures are caught and surfaced as toast. Without this, hitting the
