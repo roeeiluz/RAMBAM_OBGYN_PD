@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.5-dev';
+const APP_VERSION = '2.10.6-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.5: תיקון 2 באגים ב-PD macro tiles (back-arrow + פתיחת מתמחה נכון לפי id); 2 שדות טקסט חופשי לתפקידים; 4 כפתורי שינוי תפקיד (בכיר/PD/מתמחה/אחראי); פרופיל אישי בהגדרות (שם באנגלית + תמונה). חסם פתיחת PD macro למתמחה לא קיים.";
+const APP_VERSION_NOTES = "v2.10.6: תיקון באג 'פתח תיק אישי' מהבאנר של PD macro — פתיחה למתמחה הנכון (פיקס: _portfolioSelectedResident במקום stub חסר משמעות).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6904,11 +6904,17 @@ function _pdMacroUnlockForEdit() {
 }
 
 function _pdMacroOpenResidentPortfolio() {
-  // Cross-screen navigation: open this resident in the PD portfolio view
+  // v2.10.5 fix: open the CURRENT resident in the PD portfolio view by setting the
+  // portfolio's own selector variable (_portfolioSelectedResident), which renderPortfolio reads.
+  // Previous version wrote to a stub window._pdPortfolioResidentId that nothing read → wrong resident opened.
   try {
     const resident = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
-    if (resident) window._pdPortfolioResidentId = resident.id;
-  } catch (e) { /* ignore */ }
+    if (resident) {
+      _portfolioSelectedResident = resident.id;
+    } else {
+      console.warn('[PD-Macro] Portfolio open: resident not found for', CURRENT_MACRO_RESIDENT_NAME);
+    }
+  } catch (e) { console.warn('Portfolio open failed', e); }
   navigateTo('pd-portfolio');
 }
 
