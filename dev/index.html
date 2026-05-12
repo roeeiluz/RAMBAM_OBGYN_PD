@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.9-dev';
+const APP_VERSION = '2.10.10-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.9: שמות הערכות מדוייקים בתיק המשובים ובהיסטוריה — הערכה מסכמת PD / הערכה תקופתית עצמית / הערכה תקופתית / משוב מהיר עצמי / משוב מהיר / טיוטת הערכה תקופתית.";
+const APP_VERSION_NOTES = "v2.10.10: תיק משובים — אריחי KPI לחיצים לסינון (משובים מהירים/תקופתיות/עצמיות/הכל); תצוגת תוכן הערכה מלא בלחיצה (קומפטנציות, ציונים, המלצות, יעדים, נקודות לשיפור) במקום 'אין פרטים נוספים'.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -4628,6 +4628,14 @@ function _clearEvalDateRange() { _clearEvalFilters(); }
 // PD sees all residents (with selector), Resident sees own only
 // ═══════════════════════════════════════════════════════════════════
 let _portfolioSelectedResident = null;
+// v2.10.10: portfolio KPI-tile filters — 'all' | 'micro' | 'macro' | 'self'
+let _portfolioFilter = 'all';
+function _portfolioSetFilter(f) {
+  _portfolioFilter = (_portfolioFilter === f && f !== 'all') ? 'all' : f;
+  // Re-render whichever portfolio view is active
+  if (currentScreen === 'pd-portfolio') renderPortfolio('pd');
+  else renderPortfolio('resident');
+}
 
 function renderPortfolio(viewer) {
   viewer = viewer || 'pd';
@@ -4679,11 +4687,18 @@ function renderPortfolio(viewer) {
   // Sort newest first
   allEvals.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0));
 
-  // ── Stats ──
+  // ── Stats (computed from FULL set, not filtered) ──
   const microCount = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment).length;
   const macroCount = allEvals.filter(e => e.type === 'macro').length;
   const selfCount = allEvals.filter(e => e.selfAssessment).length;
   const totalCount = allEvals.length;
+
+  // v2.10.10: apply KPI-tile filter to the displayed list
+  const _allEvalsUnfiltered = allEvals;
+  let displayEvals = allEvals;
+  if (_portfolioFilter === 'micro')      displayEvals = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment);
+  else if (_portfolioFilter === 'macro') displayEvals = allEvals.filter(e => e.type === 'macro');
+  else if (_portfolioFilter === 'self')  displayEvals = allEvals.filter(e => e.selfAssessment);
 
   // Average EPA score from micro evals
   const microWithScores = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment && e.epaScores);
@@ -4731,23 +4746,24 @@ function renderPortfolio(viewer) {
         </div>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+        <!-- v2.10.10: KPI tiles are now clickable filters -->
+        <button onclick="_portfolioSetFilter('all')" class="bg-gray-50 rounded-lg p-2.5 text-center hover:bg-gray-100 transition border-2 ${_portfolioFilter === 'all' ? 'border-gray-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">סה"כ הערכות</div>
           <div class="text-xl font-semibold mt-0.5">${totalCount}</div>
-        </div>
-        <div class="bg-blue-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('micro')" class="bg-blue-50 rounded-lg p-2.5 text-center hover:bg-blue-100 transition border-2 ${_portfolioFilter === 'micro' ? 'border-blue-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">משובים מהירים</div>
           <div class="text-xl font-semibold text-blue-700 mt-0.5">${microCount}</div>
-        </div>
-        <div class="bg-purple-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('macro')" class="bg-purple-50 rounded-lg p-2.5 text-center hover:bg-purple-100 transition border-2 ${_portfolioFilter === 'macro' ? 'border-purple-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">תקופתיות</div>
           <div class="text-xl font-semibold text-purple-700 mt-0.5">${macroCount}</div>
-        </div>
-        <div class="bg-orange-50 rounded-lg p-2.5 text-center">
+        </button>
+        <button onclick="_portfolioSetFilter('self')" class="bg-orange-50 rounded-lg p-2.5 text-center hover:bg-orange-100 transition border-2 ${_portfolioFilter === 'self' ? 'border-orange-500' : 'border-transparent'}">
           <div class="text-xs text-gray-500">עצמיות</div>
           <div class="text-xl font-semibold text-orange-700 mt-0.5">${selfCount}</div>
-        </div>
-        <div class="bg-green-50 rounded-lg p-2.5 text-center">
+        </button>
+        <div class="bg-green-50 rounded-lg p-2.5 text-center border-2 border-transparent">
           <div class="text-xs text-gray-500">ממוצע EPA</div>
           <div class="text-xl font-semibold text-green-700 mt-0.5">${avgEpa}</div>
         </div>
@@ -4756,28 +4772,32 @@ function renderPortfolio(viewer) {
 
     <!-- ── Evaluation timeline ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
-      <div class="text-xs font-medium text-gray-500 uppercase mb-3">כל ההערכות — לפי תאריך</div>
-      ${allEvals.length === 0 ? `
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="text-xs font-medium text-gray-500 uppercase">
+          ${_portfolioFilter === 'all' ? 'כל ההערכות' : _portfolioFilter === 'micro' ? 'משובים מהירים' : _portfolioFilter === 'macro' ? 'הערכות תקופתיות' : 'הערכות עצמיות'}
+          — לפי תאריך (${displayEvals.length})
+        </div>
+        ${_portfolioFilter !== 'all' ? `<button onclick="_portfolioSetFilter('all')" class="text-xs text-purple-600 hover:underline">הצג הכל ×</button>` : ''}
+      </div>
+      ${displayEvals.length === 0 ? `
         <div class="text-center py-8">
           <div class="text-3xl mb-2">📋</div>
-          <div class="text-sm font-medium text-gray-900 mb-1">אין הערכות עדיין</div>
-          <div class="text-xs text-gray-500">הערכות שיוגשו עבור מתמחה זה יופיעו כאן.</div>
+          <div class="text-sm font-medium text-gray-900 mb-1">${_allEvalsUnfiltered.length === 0 ? 'אין הערכות עדיין' : 'אין הערכות מסוג זה'}</div>
+          <div class="text-xs text-gray-500">${_allEvalsUnfiltered.length === 0 ? 'הערכות שיוגשו עבור מתמחה זה יופיעו כאן.' : 'נסה/י לסנן אחרת או לחץ "הצג הכל".'}</div>
         </div>
       ` : `
         <div class="space-y-2">
-          ${allEvals.map(e => {
+          ${displayEvals.map(e => {
             const ts = new Date(e.timestamp || e.date || 0);
             const dateStr = ts.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' });
             const isSelf = !!e.selfAssessment;
-            // v2.10.9: precise labels — distinguish PD-approved summary, self-eval, attending macro, micro
             const typeLabel = _evalTypeLabel(e);
             const typeBg = _evalTypeBg(e);
             const catLabel = e.categoryLabel || e.category || '';
-            const scores = e.epaScores ? Object.values(e.epaScores) : [];
-            const scoreAvg = scores.length > 0 ? (scores.reduce((a,b) => a+b,0) / scores.length).toFixed(1) : null;
+            const microScores = e.epaScores ? Object.values(e.epaScores) : [];
+            const microScoreAvg = microScores.length > 0 ? (microScores.reduce((a,b) => a+b,0) / microScores.length).toFixed(1) : null;
             const evaluatorName = e.evaluatorName || e.attendingName || '';
             const feedback = e.visibleFeedback || e.reflection || '';
-            const feedbackShort = feedback.length > 80 ? feedback.slice(0, 80) + '...' : feedback;
             return `
               <details class="border border-gray-100 rounded-lg hover:border-gray-200 transition-colors">
                 <summary class="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
@@ -4788,17 +4808,14 @@ function renderPortfolio(viewer) {
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="text-xs ${typeBg} px-2 py-0.5 rounded-full">${typeLabel}</span>
                       ${catLabel ? `<span class="text-xs text-gray-500">${catLabel}</span>` : ''}
-                      ${scoreAvg ? `<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">EPA: ${scoreAvg}</span>` : ''}
+                      ${microScoreAvg ? `<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">EPA: ${microScoreAvg}</span>` : ''}
                     </div>
                     <div class="text-xs text-gray-400 mt-0.5">${dateStr}${evaluatorName ? ' · ' + evaluatorName : ''}</div>
                   </div>
                   <svg class="arrow w-4 h-4 text-gray-400 shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </summary>
-                <div class="px-3 pb-3 pt-1 border-t border-gray-50 text-xs text-gray-600">
-                  ${scores.length > 0 ? `<div class="mb-2"><span class="font-medium">ציוני EPA:</span> ${Object.entries(e.epaScores || {}).map(([k,v]) => `${k}: ${v}`).join(' · ')}</div>` : ''}
-                  ${feedback ? `<div class="mb-1"><span class="font-medium">${isSelf ? 'תובנה:' : 'משוב:'}</span> ${feedback}</div>` : ''}
-                  ${e.privateNotes ? `<div class="text-gray-400"><span class="font-medium">הערה פרטית:</span> ${escapeHtml(e.privateNotes)}</div>` : ''}
-                  ${!feedback && !scores.length ? '<div class="text-gray-400">אין פרטים נוספים</div>' : ''}
+                <div class="px-3 pb-3 pt-2 border-t border-gray-50 text-xs text-gray-700 space-y-2">
+                  ${_renderEvalDetailContent(e)}
                 </div>
               </details>
             `;
@@ -10570,6 +10587,64 @@ function escapeHtml(s) {
 }
 // Short alias for readability inside dense template literals
 const esc = escapeHtml;
+
+// v2.10.10: render expanded content for a portfolio eval row.
+// Handles all eval types: micro (EPA scores + feedback), macro attending/self (competencies + comments),
+// macro PD approved (visibleFeedback + recommendation + goals + improvePoints + competency notes).
+function _renderEvalDetailContent(e) {
+  const parts = [];
+
+  // ── Micro eval: EPA scores ──
+  if (e.epaScores && Object.keys(e.epaScores).length) {
+    const pretty = Object.entries(e.epaScores).map(([k,v]) => `<span class="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">${escapeHtml(k)}: ${v}</span>`).join('');
+    parts.push(`<div><div class="font-medium text-gray-600 mb-1">ציוני EPA</div>${pretty}</div>`);
+  }
+
+  // ── Macro: competencies map (score + comment per ACGME area) ──
+  if (e.competencies && Object.keys(e.competencies).length) {
+    const COMP_LABELS = (typeof ACGME_COMPETENCIES !== 'undefined' && Array.isArray(ACGME_COMPETENCIES))
+      ? Object.fromEntries(ACGME_COMPETENCIES.map(c => [c.key, c.short || c.label || c.key])) : {};
+    const rows = Object.entries(e.competencies)
+      .filter(([k, v]) => v && (v.score !== null && v.score !== undefined) || (v && v.comment))
+      .map(([k, v]) => {
+        const label = COMP_LABELS[k] || k.toUpperCase();
+        const scoreBadge = (v.score !== null && v.score !== undefined && !isNaN(v.score))
+          ? `<span class="inline-block bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs">${Number(v.score).toFixed(1)}/5</span>`
+          : '';
+        const comment = v.comment ? `<div class="text-gray-700 mt-1">${escapeHtml(v.comment)}</div>` : '';
+        return `<div class="border-b border-gray-50 py-1.5"><div class="flex items-center gap-2"><strong>${escapeHtml(label)}</strong>${scoreBadge}</div>${comment}</div>`;
+      });
+    if (rows.length) parts.push(`<div><div class="font-medium text-gray-600 mb-1">לפי קומפטנציה</div>${rows.join('')}</div>`);
+  }
+
+  // ── PD-approved summary: recommendation, goals, improve points ──
+  if (e.recommendation) parts.push(`<div><span class="font-medium text-gray-600">המלצה כוללת:</span> ${escapeHtml(e.recommendation)}</div>`);
+  if (e.improvePoints)  parts.push(`<div><span class="font-medium text-gray-600">נקודות לשיפור:</span><div class="whitespace-pre-wrap text-gray-700 mt-0.5">${escapeHtml(e.improvePoints)}</div></div>`);
+  if (e.goals)          parts.push(`<div><span class="font-medium text-gray-600">יעדים לתקופה הבאה:</span><div class="whitespace-pre-wrap text-gray-700 mt-0.5">${escapeHtml(e.goals)}</div></div>`);
+
+  // ── General visible feedback (micro feedback OR PD approved overall summary OR self reflection) ──
+  const feedback = e.visibleFeedback || e.reflection;
+  if (feedback) {
+    const label = e.subType === 'pd_approved' ? 'סיכום מנהלת תוכנית' : (e.selfAssessment ? 'תובנה אישית' : 'משוב הבכיר');
+    parts.push(`<div><div class="font-medium text-gray-600 mb-0.5">${label}</div><div class="whitespace-pre-wrap text-gray-700">${escapeHtml(feedback)}</div></div>`);
+  }
+
+  // ── Raw textarea comments (macro evaluations save them by competency-block index) ──
+  if (Array.isArray(e.comments) && e.comments.length) {
+    const nonEmpty = e.comments.filter(c => c && c.value && c.value.trim());
+    if (nonEmpty.length && !e.competencies) {  // only show raw comments if competencies wasn't shown
+      parts.push(`<div><div class="font-medium text-gray-600 mb-1">הערות</div>${nonEmpty.map(c => `<div class="text-gray-700 border-r-2 border-gray-200 pr-2 mb-1">${escapeHtml(c.value)}</div>`).join('')}</div>`);
+    }
+  }
+
+  // ── Private note (visible only to PD/coordinator viewing, but always rendered if present) ──
+  if (e.privateNote || e.privateNotes) {
+    parts.push(`<div class="text-gray-500 bg-gray-50 rounded p-2"><span class="font-medium">הערה פרטית:</span> ${escapeHtml(e.privateNote || e.privateNotes)}</div>`);
+  }
+
+  if (parts.length === 0) return '<div class="text-gray-400">אין פרטים נוספים</div>';
+  return parts.join('');
+}
 
 // v2.10.9: precise eval type labels for portfolio / history rows
 // Categories:
