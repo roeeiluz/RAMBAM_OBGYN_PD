@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.11-dev';
+const APP_VERSION = '2.10.12-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.11: באנר 'פעולות נדרשות' בדשבורד מתמחה — לוגיקה מתוקנת. אם יש הערכה מאושרת — מוסתר. אם רק הוגשה ולא אושרה — באנר מידעי בלבד, ללא כפתור 'פתח הערכה חדשה'. טיוטות לא מופיעות אם יש כבר הערכה סופית.";
+const APP_VERSION_NOTES = "v2.10.12: עמוד 'הערכה תקופתית' (בכירים/PD) קיבל אריחים: פתח חדשה / טיוטות / סטטוס כל ההערכות. כל הערכה מקבלת סטטוס (טיוטה/סגורה/סגורה לאחר דדליין).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2828,6 +2828,10 @@ function navigateTo(screenId) {
     _pdMacroEditUnlocked = false;
     _pdMacroReadOnlyView = false;
   }
+  // v2.10.12: same for attending-macro — clicking "הערכה תקופתית" lands on tiles
+  if (screenId === 'attending-macro' && currentScreen !== screenId) {
+    _attendingMacroSubview = 'tiles';
+  }
 
   currentScreen = screenId;
   buildSidebar();
@@ -3016,7 +3020,13 @@ function renderScreen() {
   if (currentScreen === 'resident-self-micro') renderSelfMicroForm();
 
   if (currentScreen === 'attending-micro') renderMicroForm();
-  if (currentScreen === 'attending-macro') renderMacroFormScreen('attending');
+  if (currentScreen === 'attending-macro') {
+    // v2.10.12: tile dashboard for attending/PD macro-fill flow
+    if (_attendingMacroSubview === 'drafts')    _renderAttendingMacroDrafts();
+    else if (_attendingMacroSubview === 'all')  _renderAttendingMacroAllEvals();
+    else if (_attendingMacroSubview === 'form') renderMacroFormScreen('attending');
+    else _renderAttendingMacroTiles();
+  }
   if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
   if (currentScreen === 'eval-status') renderEvalStatus();
   if (currentScreen === 'eval-requests') renderEvalRequests();
@@ -7490,6 +7500,220 @@ function _openMicroRequest(reqId) {
 // State per quarter is derived from localStorage + DEMO_SEED_EVALUATIONS.
 // ═══════════════════════════════════════════════════════════════════
 let _residentMacroSubview = 'tiles'; // 'tiles' | 'form' | 'archive'
+
+// v2.10.12: attending/PD macro-fill subview state — 'tiles' | 'form' | 'drafts' | 'all'
+let _attendingMacroSubview = 'tiles';
+
+// v2.10.12: compute attending/PD's macro-evaluation state
+//   - drafts: macro entries (any quarter) where evaluatorId=me AND subType=draft
+//   - allEvals: macro entries where evaluatorId=me (excluding pd_approved which is a separate flow)
+function _attendingMacroState() {
+  const uid = currentUser?.id;
+  if (!uid) return { drafts: [], allEvals: [] };
+  const history = _getLocalHistory();
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [...history, ...seedEvals].filter(h =>
+    h.type === 'macro' && h.evaluatorId === uid && h.subType !== 'pd_approved'
+  );
+  const drafts = all.filter(h => h.subType === 'draft');
+  const allEvals = all.slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
+  return { drafts, allEvals };
+}
+
+// v2.10.12: compute status string for a macro eval row (attending view)
+//   'draft' | 'closed' | 'closed_past_deadline'
+function _attendingMacroEvalStatus(e) {
+  if (e.subType === 'draft') return 'draft';
+  // Final submitted: check whether the originating eval-request deadline has passed
+  try {
+    if (e.residentId && e.quarterId) {
+      const reqs = _getEvalRequests().filter(r =>
+        r.residentId === e.residentId && r.quarterId === e.quarterId && r.deadline
+      );
+      const latestDeadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop();
+      if (latestDeadline) {
+        const lockTs = new Date(latestDeadline + 'T23:00:00').getTime();
+        if (Date.now() > lockTs) return 'closed_past_deadline';
+      }
+    }
+  } catch (ex) { /* ignore */ }
+  return 'closed';
+}
+
+function _attendingMacroStatusBadge(status) {
+  if (status === 'draft')                return '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">✎ טיוטה</span>';
+  if (status === 'closed_past_deadline') return '<span class="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">🔒 סגורה (לאחר דדליין)</span>';
+  return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ סגורה</span>';
+}
+
+// Nav helpers between subviews
+function _attendingMacroGoToTiles()  { _attendingMacroSubview = 'tiles';  renderScreen(); }
+function _attendingMacroOpenNew()    { _attendingMacroSubview = 'form';   renderScreen(); }
+function _attendingMacroGoToDrafts() { _attendingMacroSubview = 'drafts'; renderScreen(); }
+function _attendingMacroGoToAll()    { _attendingMacroSubview = 'all';    renderScreen(); }
+
+function _renderAttendingMacroTiles() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const draftCount = s.drafts.length;
+  const evalCount  = s.allEvals.length;
+
+  const tile = (icon, title, count, desc, action, color) => `
+    <button onclick="${action}"
+            class="bg-white rounded-xl border border-gray-200 p-4 text-right hover:border-${color}-300 hover:shadow-sm transition cursor-pointer">
+      <div class="flex items-start justify-between mb-2">
+        <div class="w-10 h-10 rounded-lg bg-${color}-50 text-${color}-600 flex items-center justify-center text-lg">${icon}</div>
+        <div class="text-2xl font-semibold text-${color}-700">${count}</div>
+      </div>
+      <div class="text-sm font-medium text-gray-900 mb-0.5">${title}</div>
+      <div class="text-xs text-gray-500 leading-relaxed">${desc}</div>
+    </button>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">הערכה תקופתית</h1>
+      <p class="text-xs text-gray-500 mt-0.5">בחר/י מה ברצונך לעשות. סטטוס ההערכות שלך כעת:</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <button onclick="_attendingMacroOpenNew()" class="bg-white rounded-xl border-2 border-blue-300 p-4 text-right hover:border-blue-500 hover:shadow transition cursor-pointer">
+        <div class="flex items-start justify-between mb-2">
+          <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">✏️</div>
+          <div class="text-blue-600 text-xl">→</div>
+        </div>
+        <div class="text-sm font-medium text-gray-900 mb-0.5">פתח הערכה חדשה</div>
+        <div class="text-xs text-gray-500 leading-relaxed">התחל הערכה תקופתית חדשה למתמחה</div>
+      </button>
+      ${tile('✎', 'טיוטות', draftCount, draftCount === 0 ? 'אין טיוטות שמורות' : 'טיוטות שמורות שלך — להמשיך', '_attendingMacroGoToDrafts()', 'amber')}
+      ${tile('📋', 'סטטוס כל ההערכות', evalCount, evalCount === 0 ? 'עוד לא מילאת הערכות תקופתיות' : 'הערכות שמילאת — טיוטה / סגורה / סגורה לאחר דדליין', '_attendingMacroGoToAll()', 'green')}
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+      💡 לחץ/י "פתח הערכה חדשה" כדי להתחיל הערכה חדשה למתמחה. טיוטות שלך נשמרות אוטומטית. הערכה שהוגשה נסגרת לעריכה (אלא אם הדדליין לא חלף).
+    </div>
+  `;
+}
+
+function _renderAttendingMacroDrafts() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const drafts = s.drafts;
+
+  const rows = drafts.length === 0 ? `
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">📋</div>
+      <div class="text-sm text-gray-500">אין טיוטות שמורות</div>
+    </div>
+  ` : `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr class="text-xs text-gray-500 uppercase">
+          <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+          <th class="px-3 py-2 text-right font-medium">רבעון</th>
+          <th class="px-3 py-2 text-right font-medium">נשמרה</th>
+          <th class="px-3 py-2 text-left font-medium">פעולה</th>
+        </tr></thead>
+        <tbody>
+        ${drafts.map(d => {
+          const rname = (d.residentName || '').replace(/^ד"ר\s+/, '') || '—';
+          const ts = d.timestamp ? _fmtDateTimeHe(d.timestamp) : '—';
+          // Find original index in localHistory so _continueDraft can locate it
+          const localHist = _getLocalHistory();
+          const idx = localHist.findIndex(h => h.timestamp === d.timestamp && h.residentId === d.residentId && h.evaluatorId === d.evaluatorId);
+          return `
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(rname)}</td>
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(d.quarterId || '—')}</td>
+              <td class="px-3 py-2.5 text-xs text-gray-500">${ts}</td>
+              <td class="px-3 py-2.5 text-left">
+                <button onclick="_continueAttendingDraft(${idx})" class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700">✎ המשך</button>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-4">
+      <button onclick="_attendingMacroGoToTiles()" class="text-xs text-blue-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+      <h1 class="text-lg font-semibold">✎ טיוטות שלי</h1>
+      <p class="text-xs text-gray-500 mt-0.5">הערכות תקופתיות שטרם הוגשו</p>
+    </div>
+    ${rows}
+  `;
+}
+
+function _renderAttendingMacroAllEvals() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const s = _attendingMacroState();
+  const list = s.allEvals;
+
+  const body = list.length === 0 ? `
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">📋</div>
+      <div class="text-sm text-gray-500">לא מילאת עדיין הערכות תקופתיות</div>
+    </div>
+  ` : `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr class="text-xs text-gray-500 uppercase">
+          <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+          <th class="px-3 py-2 text-right font-medium">רבעון</th>
+          <th class="px-3 py-2 text-right font-medium">סטטוס</th>
+          <th class="px-3 py-2 text-right font-medium">תאריך</th>
+          <th class="px-3 py-2 text-left font-medium">פעולה</th>
+        </tr></thead>
+        <tbody>
+        ${list.map(e => {
+          const rname = (e.residentName || '').replace(/^ד"ר\s+/, '') || '—';
+          const status = _attendingMacroEvalStatus(e);
+          const badge = _attendingMacroStatusBadge(status);
+          const ts = e.timestamp ? _fmtDateTimeHe(e.timestamp) : '—';
+          const localHist = _getLocalHistory();
+          const idx = localHist.findIndex(h => h.timestamp === e.timestamp && h.residentId === e.residentId && h.evaluatorId === e.evaluatorId);
+          const actionBtn = status === 'draft'
+            ? `<button onclick="_continueAttendingDraft(${idx})" class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700">✎ המשך</button>`
+            : `<span class="text-xs text-gray-400">—</span>`;
+          return `
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(rname)}</td>
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(e.quarterId || '—')}</td>
+              <td class="px-3 py-2.5">${badge}</td>
+              <td class="px-3 py-2.5 text-xs text-gray-500">${ts}</td>
+              <td class="px-3 py-2.5 text-left">${actionBtn}</td>
+            </tr>
+          `;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-4">
+      <button onclick="_attendingMacroGoToTiles()" class="text-xs text-blue-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+      <h1 class="text-lg font-semibold">📋 סטטוס כל ההערכות</h1>
+      <p class="text-xs text-gray-500 mt-0.5">${list.length} הערכות תקופתיות שמילאת</p>
+    </div>
+    ${body}
+  `;
+}
+
+// v2.10.12: continue an attending draft — reuses the existing _continueDraft mechanism,
+// switches to the form subview, then triggers re-render.
+function _continueAttendingDraft(idx) {
+  _attendingMacroSubview = 'form';
+  if (typeof _continueDraft === 'function') _continueDraft(idx);
+  else renderScreen();
+}
+
 
 function _residentMacroState(mode) {
   const userId = currentUser?.id;
