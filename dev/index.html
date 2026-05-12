@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.4-dev';
-const APP_VERSION_DATE = '11.5.2026';
-const APP_VERSION_NOTES = "v2.10.4: רויטל קוזין (PD רכזת) — סינון תפריט: אין משוב מהיר/הערכה תקופתית למילוי (היא רק מאשרת). תשתית לסינון נע\"י-משתמש (NAV_USER_OVERRIDES).";
+const APP_VERSION = '2.10.5-dev';
+const APP_VERSION_DATE = '12.5.2026';
+const APP_VERSION_NOTES = "v2.10.5: תיקון 2 באגים ב-PD macro tiles (back-arrow + פתיחת מתמחה נכון לפי id); 2 שדות טקסט חופשי לתפקידים; 4 כפתורי שינוי תפקיד (בכיר/PD/מתמחה/אחראי); פרופיל אישי בהגדרות (שם באנגלית + תמונה). חסם פתיחת PD macro למתמחה לא קיים.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6257,6 +6257,20 @@ function _pdMacroOpenForm(name, opts) {
   _pdMacroReadOnlyView = !!(opts && opts.view);
   renderMacroPdScreen();
 }
+// v2.10.4 fix: open form by resident.id (stable, avoids name-escaping mismatch bugs)
+function _pdMacroOpenFormById(residentId, mode) {
+  const r = RESIDENTS.find(x => x.id === residentId);
+  if (!r) {
+    console.warn('[PD-Macro] Resident not found by id', residentId);
+    alert('שגיאה: לא הצלחנו לזהות את המתמחה הזה. רענן/י את המסך ונסה/י שוב.');
+    return;
+  }
+  CURRENT_MACRO_RESIDENT_NAME = r.name;
+  _pdMacroSubview = 'form';
+  _pdMacroEditUnlocked = false;
+  _pdMacroReadOnlyView = (mode === 'view');
+  renderMacroPdScreen();
+}
 
 // v2.10.4: format ISO date in Hebrew locale for display
 function _fmtDateTimeHe(iso) {
@@ -6341,7 +6355,8 @@ function renderMacroPdScreen() {
   // Empty state
   if (availableResidents.length === 0) {
     target.innerHTML = `
-      <div class="mb-5">
+      <div class="mb-4">
+        ${!isReadOnlyRole ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
         <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
         <p class="text-xs text-gray-500 mt-0.5">סיכום הערכות הבכירים והמתמחה — לאישור סופי</p>
       </div>
@@ -6364,7 +6379,8 @@ function renderMacroPdScreen() {
     const residentObj = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
     const pgyLabel = residentObj?.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][residentObj.pgy-1]}׳` : '';
     target.innerHTML = `
-      <div class="mb-5">
+      <div class="mb-4">
+        ${!isReadOnlyRole ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
         <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
         <p class="text-xs text-gray-500 mt-0.5">סיכום הערכות הבכירים והמתמחה — לאישור סופי</p>
       </div>
@@ -6776,13 +6792,13 @@ function _renderPdMacroList(target) {
     const quarterCell = isArchive ? `<td class="px-3 py-2.5 text-xs text-gray-600">${r.quarterId || '—'}</td>` : '';
     const openLabel = status === 'approved' ? 'פתח (סגור)' : status === 'draft' ? 'המשך טיוטה' : 'פתח לסיכום';
     const openIcon = status === 'approved' ? '🔒' : status === 'draft' ? '✎' : '→';
+    // v2.10.4 fix: pass resident.id (stable) instead of name (escaping/whitespace issues caused wrong resident to open)
+    const opts = status === 'approved' ? 'view' : 'normal';
     return `
       <tr class="border-b border-gray-100 hover:bg-gray-50">
         <td class="px-3 py-2.5">
           <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-semibold shrink-0">
-              ${resident.name.split(' ').map(w=>w[0]).slice(0,2).join('')}
-            </div>
+            ${_renderUserAvatar(resident.id, resident.name, 'w-8 h-8')}
             <div>
               <div class="text-sm font-medium">${escapeHtml(resident.name)}</div>
               <div class="text-xs text-gray-400">${pgyLabel}</div>
@@ -6793,7 +6809,7 @@ function _renderPdMacroList(target) {
         ${quarterCell}
         <td class="px-3 py-2.5">${approvalCell}</td>
         <td class="px-3 py-2.5 text-left">
-          <button onclick="_pdMacroOpenForm('${escapeHtml(resident.name)}', ${status === 'approved' ? "{view:true}" : "{}"})"
+          <button onclick="_pdMacroOpenFormById('${escapeAttr(resident.id)}', '${opts}')"
                   class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">
             ${openIcon} ${openLabel}
           </button>
@@ -9203,6 +9219,12 @@ function renderSettings() {
   const isResident = currentRole === 'resident';
   const userName = currentUser?.name || 'משתמש';
 
+  // v2.10.5: profile section data — self-edit for English name + photo
+  const myId = currentUser?.id || '';
+  const myProfile = _getProfile(myId);
+  const myPhoto = myProfile.photoDataUrl || '';
+  const myNameEn = myProfile.nameEn || '';
+
   target.innerHTML = `
     <!-- Header -->
     <div class="mb-6">
@@ -9214,6 +9236,40 @@ function renderSettings() {
         העדפות אישיות עבור ${userName}. ההגדרות נשמרות במכשיר ומיושמות אוטומטית בכניסות הבאות.
       </p>
     </div>
+
+    <!-- v2.10.5: Profile section — self-edit photo + English name -->
+    <section class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">👤</span>
+        <h2 class="text-base font-semibold">הפרופיל שלי</h2>
+      </div>
+      <p class="text-xs text-gray-500 leading-relaxed mb-4">תמונת פרופיל ושם באנגלית. שינויים פה משתקפים בכל המסכים שבהם אתה/את מוצג/ת — כולל מסך ניהול הנתונים של ה-PD.</p>
+      <div class="flex items-center gap-4 mb-4">
+        <div id="self-profile-photo-preview">
+          ${myPhoto
+            ? `<img src="${escapeAttr(myPhoto)}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`
+            : `<div class="w-20 h-20 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-lg font-semibold">${escapeHtml((userName||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</div>`}
+        </div>
+        <div class="flex-1">
+          <label class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 cursor-pointer inline-flex items-center gap-1">
+            <span>⤒</span> העלה תמונה
+            <input type="file" accept="image/*" class="hidden" onchange="_onSelfProfilePhotoChange(this)">
+          </label>
+          ${myPhoto ? '<button onclick="_clearSelfProfilePhoto()" class="text-xs text-red-600 hover:underline mr-2">הסר</button>' : ''}
+          <div class="text-xs text-gray-400 mt-1">JPG/PNG · עד 500KB</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">שם באנגלית</label>
+          <input id="self-name-en" type="text" value="${escapeAttr(myNameEn)}" placeholder="Roee Iluz" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+        </div>
+        <div class="flex items-end">
+          <button onclick="_saveSelfProfile()" class="w-full px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700">💾 שמור פרופיל</button>
+        </div>
+      </div>
+      <div class="text-xs text-amber-700 mt-3 bg-amber-50 rounded-lg p-2">⚠ שינוי תפקיד במערכת (מתמחה, בכיר, PD, מתמחה אחראי) הוא בסמכות PD בלבד דרך מסך "ניהול נתונים".</div>
+    </section>
 
     <!-- 1. Notifications (especially relevant for residents) -->
     <section class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
@@ -10116,6 +10172,7 @@ function renderUserRow(u, currentTab, isPdViewer) {
   let actions = '';
   if (isPdViewer) {
     if (currentTab === 'active' && !isArchived) {
+      // v2.10.5: removed standalone ↑ promote button — role change is now inside the edit modal
       actions = `
         <button onclick="showEditUserModal('${escapeAttr(u.id)}', '${escapeAttr(displayName)}', '${u.role}', '${escapeAttr(displayEmail || '')}', '${escapeAttr(displayStart || '')}')"
                 class="text-xs text-purple-600 hover:underline" title="עריכת נתונים">✎</button>
@@ -10123,8 +10180,6 @@ function renderUserRow(u, currentTab, isPdViewer) {
                 class="text-xs text-gray-600 hover:text-gray-900 hover:underline" title="העבר לארכיון">📦</button>
         <button onclick="showReplaceUserModal('${u.id}', '${escapeAttr(displayName)}', '${u.role}')"
                 class="text-xs text-blue-600 hover:underline" title="החלף בתפקיד">🔄</button>
-        ${u.role === 'resident' ? `<button onclick="showPromoteResidentModal('${u.id}', '${escapeAttr(displayName)}', '${escapeAttr(displayEmail || '')}')"
-                class="text-xs text-purple-600 hover:underline" title="קדם לבכיר">↑</button>` : ''}
       `;
     } else if (currentTab === 'archive' && isArchived) {
       actions = `
@@ -10287,23 +10342,32 @@ function showEditUserModal(userId, userName, userRole, userEmail, userStart) {
             `).join('')}
           </div>
           <div class="text-xs text-gray-400 mt-2">מסומן = המשתמש/ת ממלא/ת את התפקיד הזה כעת.</div>
+
+          <!-- v2.10.5: 2 free-text custom role fields -->
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs font-medium text-gray-600 block mb-1">תפקיד חופשי #1</label>
+              <input id="edit-user-custom-role-1" type="text" value="${escapeAttr(profile.customRole1 || '')}" placeholder="לדוגמה: רכז/ת סבב חוץ" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-600 block mb-1">תפקיד חופשי #2</label>
+              <input id="edit-user-custom-role-2" type="text" value="${escapeAttr(profile.customRole2 || '')}" placeholder="לדוגמה: אחראי טופס 17" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+            </div>
+          </div>
         </div>
 
-        <!-- Promote section -->
-        ${(userRole === 'resident' || userRole === 'attending' || userRole === 'chief') ? `
+        <!-- v2.10.5: 4 role-change buttons (replaces single promote button) -->
         <div class="border-t border-gray-100 pt-3">
-          <label class="text-xs font-medium text-gray-700 block mb-2">קידום תפקיד</label>
-          <div class="flex flex-wrap gap-2">
-            ${userRole === 'resident' ? `
-              <button onclick="_promoteUserFromEdit('${escapeAttr(userId)}', '${escapeAttr(eName)}', '${escapeAttr(eEmail)}', 'attending')" class="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">↑ קדם לבכיר/ה</button>
-            ` : ''}
-            ${(userRole === 'attending' || userRole === 'chief') ? `
-              <button onclick="_promoteUserFromEdit('${escapeAttr(userId)}', '${escapeAttr(eName)}', '${escapeAttr(eEmail)}', 'pd')" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">↑ קדם ל-PD</button>
-            ` : ''}
+          <label class="text-xs font-medium text-gray-700 block mb-2">שינוי תפקיד במערכת</label>
+          <div class="text-xs text-gray-500 mb-2">תפקיד נוכחי: <strong>${_roleHe(userRole)}</strong></div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'attending')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'attending' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-amber-400">🩺 בכיר</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'pd')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'pd' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-purple-400">⭐ PD</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'resident')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'resident' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-blue-400">👨‍⚕️ מתמחה</button>
+            <button onclick="_changeUserRole('${escapeAttr(userId)}', '${escapeAttr(eName)}', 'chief')" class="text-xs px-2 py-1.5 bg-white border-2 ${userRole === 'chief' ? 'border-pink-500 bg-pink-50' : 'border-gray-200'} text-gray-700 rounded-lg hover:border-pink-400">👑 מתמחה אחראי</button>
           </div>
-          <div class="text-xs text-gray-400 mt-2">קידום תפקיד יעדכן את ההרשאות במערכת. השינוי דורש אישור.</div>
+          <div class="text-xs text-gray-400 mt-2">לחיצה תפתח אישור. השינוי יעביר את המשתמש/ת לקטגוריה החדשה במערכת.</div>
         </div>
-        ` : ''}
 
         <div id="edit-user-error" class="text-xs text-red-600 hidden bg-red-50 border border-red-200 rounded-lg p-2"></div>
       </div>
@@ -10363,13 +10427,77 @@ function _clearEditUserPhoto() {
   if (preview) preview.innerHTML = `<div class="w-20 h-20 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">ללא תמונה</div>`;
 }
 
-function _promoteUserFromEdit(userId, userName, userEmail, targetRole) {
-  const targetLabel = targetRole === 'pd' ? 'מנהל/ת תוכנית (PD)' : 'רופא/ה בכיר/ה';
-  if (!confirm(`לקדם את ${userName} ל-${targetLabel}?\n\nהשינוי יעדכן את ההרשאות וההצגות במערכת. הפעולה תכנס לתוקף לאחר deploy backend (כרגע — שמירה מקומית בלבד).`)) return;
-  _patchProfile(userId, { promotedTo: targetRole, promotedAt: new Date().toISOString() });
-  showToast(`✅ ${userName} סומן/ה לקידום ל-${targetLabel}. הקידום ייכנס לתוקף מלא כשבקאנד יעדכן את ה-USERS array.`, 'success');
-  document.getElementById('edit-user-modal').remove();
+// v2.10.5: Self-profile editing from Settings screen
+function _onSelfProfilePhotoChange(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 500 * 1024) {
+    alert('התמונה גדולה מ-500KB. אנא בחר/י תמונה קטנה יותר.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    window._selfProfilePhotoDataUrl = dataUrl;
+    const preview = document.getElementById('self-profile-photo-preview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _clearSelfProfilePhoto() {
+  window._selfProfilePhotoDataUrl = '__CLEAR__';
+  const preview = document.getElementById('self-profile-photo-preview');
+  if (preview) preview.innerHTML = `<div class="w-20 h-20 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">ללא תמונה</div>`;
+}
+
+function _saveSelfProfile() {
+  const myId = currentUser?.id;
+  if (!myId) { showToast('שגיאה: לא הצלחנו לזהות אותך', 'error'); return; }
+  const nameEn = (document.getElementById('self-name-en')?.value || '').trim();
+  const patch = { nameEn };
+  if (window._selfProfilePhotoDataUrl === '__CLEAR__') patch.photoDataUrl = null;
+  else if (typeof window._selfProfilePhotoDataUrl === 'string' && window._selfProfilePhotoDataUrl.startsWith('data:image')) patch.photoDataUrl = window._selfProfilePhotoDataUrl;
+  const ok = _patchProfile(myId, patch);
+  if (!ok) { showToast('שגיאה בשמירה — ייתכן שאחסון מקומי מלא', 'error'); return; }
+  window._selfProfilePhotoDataUrl = null;
+  showToast('✅ הפרופיל שלך נשמר. השינויים יופיעו בכל המסכים.', 'success');
+  renderSettings();
+}
+
+// v2.10.5: role labels in Hebrew
+function _roleHe(role) {
+  return ({pd:'מנהל/ת תוכנית', coordinator:'רכזת תוכנית', attending:'רופא/ה בכיר/ה', chief:'מתמחה אחראי/ת', resident:'מתמחה'})[role] || role;
+}
+
+// v2.10.5: 4-button role change — generic
+function _changeUserRole(userId, userName, newRole) {
+  const profile = _getProfile(userId);
+  const currentRoleId = profile.roleOverride || _getStaticRole(userId);
+  if (currentRoleId === newRole) {
+    alert(`${userName} כבר במצב "${_roleHe(newRole)}".`);
+    return;
+  }
+  const fromLabel = _roleHe(currentRoleId);
+  const toLabel = _roleHe(newRole);
+  if (!confirm(`האם את/ה בטוח/ה שברצונך לשנות את התפקיד של ${userName}?\n\nמ-${fromLabel}\nל-${toLabel}\n\nהשינוי יעביר את המשתמש/ת לקטגוריה החדשה במערכת ויעדכן את ההרשאות וההצגות. במצב dev: שמירה מקומית בלבד. במצב prod: יכנס לתוקף לאחר עדכון בקאנד (USERS array).`)) return;
+  _patchProfile(userId, { roleOverride: newRole, roleOverrideAt: new Date().toISOString() });
+  showToast(`✅ ${userName} סומן/ה לתפקיד ${toLabel}.`, 'success');
+  const modal = document.getElementById('edit-user-modal');
+  if (modal) modal.remove();
   if (currentScreen === 'pd-data') renderDataManagementScreen();
+}
+
+// Returns the static role from USERS/STAFF lookup
+function _getStaticRole(userId) {
+  for (const role of ['pd','coordinator','attending','chief']) {
+    if ((STAFF[role] || []).some(u => u.id === userId)) return role;
+  }
+  if (RESIDENTS_RAW.some(r => 'r_' + r.name.replace(/[^א-ת]/g, '') === userId)) return 'resident';
+  const dyn = DYNAMIC_USERS.find(u => u.id === userId);
+  if (dyn) return dyn.role;
+  return null;
 }
 
 async function submitEditUser(userId, userRole) {
@@ -10387,11 +10515,13 @@ async function submitEditUser(userId, userRole) {
     errEl.textContent = 'תחילת התמחות בפורמט YYYY-MM'; errEl.classList.remove('hidden'); return;
   }
 
-  // Gather additional roles
+  // Gather additional roles + custom free-text roles
   const additionalRoles = Array.from(document.querySelectorAll('.edit-user-add-role:checked')).map(cb => cb.dataset.roleId);
+  const customRole1 = (document.getElementById('edit-user-custom-role-1')?.value || '').trim();
+  const customRole2 = (document.getElementById('edit-user-custom-role-2')?.value || '').trim();
 
   // Build patch
-  const patch = { name, email, additionalRoles };
+  const patch = { name, email, additionalRoles, customRole1, customRole2 };
   if (start) patch.start = start;
 
   // Photo update — only if user changed it via the file picker
