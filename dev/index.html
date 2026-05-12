@@ -131,6 +131,39 @@
      mobile bottom nav). */
   body.in-app #rambam-logo-link,
   body.in-app #version-indicator { display: none !important; }
+
+  /* v2.10.2: Sandbox visual differentiation
+     When body.is-sandbox is set, an orange/amber banner pinned at top warns the user
+     and the rambam logo gets an amber tint so the sandbox is unmistakable. */
+  body.is-sandbox::before {
+    content: '🧪 SANDBOX — Development environment · Data stays in your browser · Does NOT reach Drive';
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: linear-gradient(90deg, #f59e0b 0%, #ea580c 100%);
+    color: white;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  body.is-sandbox #rambam-logo-link {
+    background: linear-gradient(135deg, rgba(234, 88, 12, 0.92) 0%, rgba(180, 83, 9, 0.92) 100%) !important;
+  }
+  body.is-sandbox #version-indicator {
+    background: rgba(234, 88, 12, 0.92) !important;
+  }
+  /* Sandbox login screen accent — replace blue/purple with amber */
+  body.is-sandbox #login-screen {
+    background: linear-gradient(to bottom, #fff7ed, #ffedd5) !important;
+  }
+  body.is-sandbox .text-blue-600 { color: #ea580c !important; }
+  body.is-sandbox .bg-blue-600 { background-color: #ea580c !important; }
+  body.is-sandbox .border-blue-200 { border-color: #fed7aa !important; }
+  body.is-sandbox .bg-blue-50 { background-color: #fff7ed !important; }
 </style>
 </head>
 <body class="text-gray-900">
@@ -663,14 +696,34 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.1-dev';
+const APP_VERSION = '2.10.2-dev';
 const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "Stability hardening (frontend-only): LOCAL_HISTORY_MAX מוגדל מ-100 ל-2000 (1 שנת שימוש = ~1100 הערכות; 100 איבד 91%). הוספת safeSetItem utility למניעת crash על quota errors. דוח עומסים מלא ב-STABILITY_REPORT_v2.10.0.md.";
+const APP_VERSION_NOTES = "Visual differentiation: sandbox builds (dev/) show orange banner + amber theme + 🧪 tab title prefix. Production unchanged. Wired to DEV_BYPASS_AUTH flag so build.py auto-handles both.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
 const DEV_BYPASS_AUTH = true;  // built by build.py (dev)
 // ────────────────────────────────────────────────────────────────────
+
+// v2.10.2: Sandbox visual indicators — applied as early as possible so the
+// banner shows before any other UI renders. body.is-sandbox triggers the CSS
+// rules in <head> (orange banner, amber theme, warning-colored logo/chip).
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+  try {
+    document.body.classList.add('is-sandbox');
+    // Prefix browser tab title so it's obvious in tab list
+    if (document.title && !document.title.startsWith('🧪')) {
+      document.title = '🧪 [SANDBOX] ' + document.title;
+    }
+  } catch (e) { /* DOM not ready — set later */ }
+  // Also re-apply on DOMContentLoaded in case body wasn't available yet
+  document.addEventListener('DOMContentLoaded', function() {
+    document.body.classList.add('is-sandbox');
+    if (document.title && !document.title.startsWith('🧪')) {
+      document.title = '🧪 [SANDBOX] ' + document.title;
+    }
+  });
+}
 
 // v2.10.2: localStorage namespace isolation between dev and prod environments.
 // When DEV_BYPASS_AUTH=true, ALL localStorage keys starting with 'cbme_' are
