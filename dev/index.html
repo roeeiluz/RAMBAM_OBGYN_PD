@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.8-dev';
+const APP_VERSION = '2.10.9-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.8: לחיצה על 'סיכום תקופתי (PD)' בתפריט תמיד פותחת את דף האריחים (לא זוכרת תת-מצב קודם).";
+const APP_VERSION_NOTES = "v2.10.9: שמות הערכות מדוייקים בתיק המשובים ובהיסטוריה — הערכה מסכמת PD / הערכה תקופתית עצמית / הערכה תקופתית / משוב מהיר עצמי / משוב מהיר / טיוטת הערכה תקופתית.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -4445,7 +4445,7 @@ function renderEvalStatus() {
       const ts = new Date(h.timestamp || h.date || 0).getTime();
       const initials = (h.residentName || '??').split(' ').map(w => w[0]).join('').slice(0, 2);
       const daysAgo = Math.max(0, Math.round((now - ts) / (24*60*60*1000)));
-      const typeLabel = h.type === 'macro' ? 'תקופתית' : h.selfAssessment ? 'עצמית' : 'מיידית';
+      const typeLabel = _evalTypeLabel(h);  // v2.10.9: precise labels
       const isDraft = h.subType === 'draft';
       const isSelfAssessment = !!h.selfAssessment;
       // Find origIdx in rawHistory for draft deletion
@@ -4557,7 +4557,7 @@ function renderEvalStatus() {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-medium">${r.isSelfAssessment ? (r.categoryLabel || r.category || 'הערכה עצמית') : (r.residentName || '—')}</span>
-                  <span class="text-xs ${r.type === 'macro' ? 'bg-purple-100 text-purple-700' : r.isSelfAssessment ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full">${r.type === 'macro' ? 'תקופתית' : 'משוב מהיר'}${r.isSelfAssessment ? ' · עצמית' : ''}</span>
+                  <span class="text-xs ${_evalTypeBg(r)} px-2 py-0.5 rounded-full">${_evalTypeLabel(r)}</span>
                   ${r.isDraft ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">${r.type === 'macro' && r.mode === 'pd' ? 'טיוטת סיכום סופי' : 'טיוטא'}</span>` : ''}
                   ${r.quarterId ? `<span class="text-xs text-gray-400">${r.quarterId}</span>` : ''}
                 </div>
@@ -4769,8 +4769,9 @@ function renderPortfolio(viewer) {
             const ts = new Date(e.timestamp || e.date || 0);
             const dateStr = ts.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' });
             const isSelf = !!e.selfAssessment;
-            const typeLabel = e.type === 'macro' ? 'תקופתית' : isSelf ? 'עצמית' : 'מיידית';
-            const typeBg = e.type === 'macro' ? 'bg-purple-100 text-purple-700' : isSelf ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
+            // v2.10.9: precise labels — distinguish PD-approved summary, self-eval, attending macro, micro
+            const typeLabel = _evalTypeLabel(e);
+            const typeBg = _evalTypeBg(e);
             const catLabel = e.categoryLabel || e.category || '';
             const scores = e.epaScores ? Object.values(e.epaScores) : [];
             const scoreAvg = scores.length > 0 ? (scores.reduce((a,b) => a+b,0) / scores.length).toFixed(1) : null;
@@ -10569,6 +10570,40 @@ function escapeHtml(s) {
 }
 // Short alias for readability inside dense template literals
 const esc = escapeHtml;
+
+// v2.10.9: precise eval type labels for portfolio / history rows
+// Categories:
+//   macro + pd_approved      → "הערכה מסכמת PD"           (purple)
+//   macro + resident self    → "הערכה תקופתית עצמית"     (orange)
+//   macro + draft (anyone)   → "טיוטת הערכה תקופתית"       (amber)
+//   macro + attending/final  → "הערכה תקופתית"            (purple)
+//   micro + self             → "משוב מהיר עצמי"           (orange)
+//   micro + attending        → "משוב מהיר"                (blue)
+function _evalTypeLabel(e) {
+  if (!e) return '';
+  const isSelf = !!(e.selfAssessment || e.isSelfAssessment || e.evaluatorRole === 'resident');
+  if (e.type === 'macro') {
+    if (e.subType === 'pd_approved') return 'הערכה מסכמת PD';
+    if (e.subType === 'draft' || e.isDraft)        return 'טיוטת הערכה תקופתית';
+    if (isSelf)                       return 'הערכה תקופתית עצמית';
+    return 'הערכה תקופתית';
+  }
+  // micro (and everything else)
+  if (isSelf) return 'משוב מהיר עצמי';
+  return 'משוב מהיר';
+}
+function _evalTypeBg(e) {
+  if (!e) return 'bg-gray-100 text-gray-600';
+  const isSelf = !!(e.selfAssessment || e.isSelfAssessment || e.evaluatorRole === 'resident');
+  if (e.type === 'macro') {
+    if (e.subType === 'pd_approved') return 'bg-purple-100 text-purple-700';
+    if (e.subType === 'draft' || e.isDraft)        return 'bg-amber-100 text-amber-700';
+    if (isSelf)                       return 'bg-orange-100 text-orange-700';
+    return 'bg-purple-100 text-purple-700';
+  }
+  if (isSelf) return 'bg-orange-100 text-orange-700';
+  return 'bg-blue-100 text-blue-700';
+}
 
 // v2.10.1: defensive localStorage wrapper — quota errors and serialization
 // failures are caught and surfaced as toast. Without this, hitting the
