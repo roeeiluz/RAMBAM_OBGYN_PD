@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.10-dev';
+const APP_VERSION = '2.10.11-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.10: תיק משובים — אריחי KPI לחיצים לסינון (משובים מהירים/תקופתיות/עצמיות/הכל); תצוגת תוכן הערכה מלא בלחיצה (קומפטנציות, ציונים, המלצות, יעדים, נקודות לשיפור) במקום 'אין פרטים נוספים'.";
+const APP_VERSION_NOTES = "v2.10.11: באנר 'פעולות נדרשות' בדשבורד מתמחה — לוגיקה מתוקנת. אם יש הערכה מאושרת — מוסתר. אם רק הוגשה ולא אושרה — באנר מידעי בלבד, ללא כפתור 'פתח הערכה חדשה'. טיוטות לא מופיעות אם יש כבר הערכה סופית.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3680,36 +3680,73 @@ function renderResidentDashboard() {
   // v2.9.15: actionable section — points to improve + goals from latest pd_approved + personal pad
   try { _renderResidentActionable(r); } catch (e) { console.warn('Actionable render failed:', e); }
 
-  // v2.9.12: Pending action banner — show if resident has any open eval requests
-  // OR has a pending self-eval (final not approved yet) OR a draft to continue
+  // v2.9.12 → v2.10.11: Pending action banner — refined logic
+  // RULES:
+  //   - If a PD-approved summary exists for the current quarter → hide banner entirely (resident is done)
+  //   - If a final self-eval was submitted (not yet approved) → INFO banner (gray/blue), no action button
+  //   - A draft is only "actionable" if no final/approval already exists for the same quarter (the
+  //     old logic kept stale drafts visible even after the resident had already submitted a final)
+  //   - If open eval-requests are still pending + no final yet → action banner with "open eval" button
   try {
     const banner = document.getElementById('resident-pending-banner');
     if (banner) {
-      const reqs = _getEvalRequests().filter(req => req.residentId === r.id && req.status === 'open');
       const state = _residentMacroState('resident');
-      const today = new Date().toISOString().slice(0, 10);
-      const parts = [];
-      reqs.forEach(req => {
-        const completion = _evalRequestCompletionMap(req);
-        const allDone = completion.every(c => c.done);
-        if (!allDone) {
-          const isPast = req.deadline && req.deadline < today;
-          parts.push(`<div class="text-xs ${isPast ? 'text-red-700' : 'text-amber-800'}">📥 בקשת הערכה תקופתית (${req.quarterId}) — תאריך יעד: ${req.deadline}${isPast ? ' (פג!)' : ''}</div>`);
+
+      // Case 1: approved → nothing to do, hide the banner
+      if (state.hasApproved) {
+        banner.innerHTML = '';
+      } else {
+        const reqs = _getEvalRequests().filter(req => req.residentId === r.id && req.status === 'open');
+        const today = new Date().toISOString().slice(0, 10);
+        const actionable = [];   // amber items that need user action
+        const infoItems  = [];   // grey/info items (already submitted, awaiting others)
+
+        // Open eval-requests
+        reqs.forEach(req => {
+          const completion = _evalRequestCompletionMap(req);
+          const allDone = completion.every(c => c.done);
+          if (!allDone) {
+            const isPast = req.deadline && req.deadline < today;
+            // If user already has a final for this quarter, treat the request as info (resident did their part)
+            if (state.hasFinal && req.quarterId === state.quarterId) {
+              infoItems.push(`<div class="text-xs text-gray-600">📥 בקשת הערכה (${req.quarterId}) — ההערכה שלך הוגשה, ממתינים לבכירים אחרים</div>`);
+            } else {
+              actionable.push(`<div class="text-xs ${isPast ? 'text-red-700' : 'text-amber-800'}">📥 בקשת הערכה תקופתית (${req.quarterId}) — תאריך יעד: ${req.deadline || '—'}${isPast ? ' (פג!)' : ''}</div>`);
+            }
+          }
+        });
+
+        // Draft — only actionable if no final/approval already exists for the same quarter
+        if (state.hasDraft && !state.hasFinal && !state.hasApproved) {
+          actionable.push(`<div class="text-xs text-amber-800">📝 יש לך טיוטה פתוחה ל-${state.quarterId} — <a href="#" onclick="event.preventDefault(); navigateTo('resident-self'); _residentMacroOpen('resident','draft')" class="underline">המשך</a></div>`);
         }
-      });
-      if (state.hasDraft) {
-        parts.push(`<div class="text-xs text-amber-800">📝 יש לך טיוטה פתוחה ל-${state.quarterId} — <a href="#" onclick="event.preventDefault(); navigateTo('resident-self'); _residentMacroOpen('resident','draft')" class="underline">המשך</a></div>`);
+
+        // Final submitted, awaiting PD approval — INFO, not action
+        if (state.hasFinal && !state.hasApproved) {
+          infoItems.push(`<div class="text-xs text-gray-600">⏳ הערכה עצמית הוגשה ל-${state.quarterId} — ממתינה לאישור PD</div>`);
+        }
+
+        // Render decision tree
+        if (actionable.length > 0) {
+          banner.innerHTML = `
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <div class="text-sm font-semibold text-amber-900 mb-2">פעולות נדרשות</div>
+              <div class="space-y-1.5">${[...actionable, ...infoItems].join('')}</div>
+              <div class="mt-2"><button onclick="navigateTo('resident-self')" class="text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">פתח הערכה תקופתית ←</button></div>
+            </div>
+          `;
+        } else if (infoItems.length > 0) {
+          // Info-only — no action button (and no scary "פעולות נדרשות" header)
+          banner.innerHTML = `
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
+              <div class="text-sm font-medium text-gray-700 mb-2">סטטוס הערכה תקופתית</div>
+              <div class="space-y-1.5">${infoItems.join('')}</div>
+            </div>
+          `;
+        } else {
+          banner.innerHTML = '';
+        }
       }
-      if (state.hasFinal && !state.hasApproved) {
-        parts.push(`<div class="text-xs text-amber-800">⏳ הערכה עצמית הוגשה ל-${state.quarterId}, ממתינה לאישור PD</div>`);
-      }
-      banner.innerHTML = parts.length === 0 ? '' : `
-        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-          <div class="text-sm font-semibold text-amber-900 mb-2">פעולות נדרשות</div>
-          <div class="space-y-1.5">${parts.join('')}</div>
-          <div class="mt-2"><button onclick="navigateTo('resident-self')" class="text-xs bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">פתח הערכה תקופתית ←</button></div>
-        </div>
-      `;
     }
   } catch (e) { console.warn('Pending banner error:', e); }
 
