@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.6-dev';
+const APP_VERSION = '2.10.7-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.6: תיקון באג 'פתח תיק אישי' מהבאנר של PD macro — פתיחה למתמחה הנכון (פיקס: _portfolioSelectedResident במקום stub חסר משמעות).";
+const APP_VERSION_NOTES = "v2.10.7: הוסר אריח 'טיוטות שלי' — טיוטות נכללות כעת ב'ממתינים לסיכום' (4 אריחים במקום 5, רשת 2x2).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6720,18 +6720,19 @@ function _renderPdMacroTiles(target) {
     </button>
   `;
 
+  // v2.10.7: removed "טיוטות שלי" tile — drafts are now folded into "ממתינים לסיכום"
+  const pendingPlusDrafts = counts.pending + counts.drafts;
   target.innerHTML = `
     <div class="mb-5">
       <h1 class="text-lg font-semibold">הערכות תקופתיות (PD)</h1>
       <p class="text-xs text-gray-500 mt-0.5">ניהול סיכומי PD לרבעון <strong>${qid}</strong></p>
     </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-      ${tile('pending',  '◷',  'ממתינים לסיכום',  counts.pending,  'amber',  'בכירים הגישו, אין עדיין אישור PD')}
-      ${tile('approved', '✓',  'אושרו ברבעון',     counts.approved, 'green',  'הסיכום אושר ונחתם — סגור לשינוי ללא אישור PD חוזר')}
-      ${tile('drafts',   '✎',  'טיוטות שלי',       counts.drafts,   'purple', 'טיוטות שמורות בשמך — לא נשלחו עדיין למתמחה')}
-      ${tile('archive',  '🗃', 'ארכיון',           counts.archive,  'gray',   'סיכומים מרבעונים קודמים')}
-      ${tile('all',      '👥', 'כל המתמחים',       counts.total,    'blue',   'רשימה מלאה עם סטטוס, תאריך אישור ומאשר')}
+    <div class="grid grid-cols-2 md:grid-cols-2 gap-3 mb-4">
+      ${tile('pending',  '◷',  'ממתינים לסיכום',  pendingPlusDrafts, 'amber',  'בכירים הגישו, אין עדיין אישור PD — כולל טיוטות שמורות בשמך')}
+      ${tile('approved', '✓',  'אושרו ברבעון',     counts.approved,   'green',  'הסיכום אושר ונחתם — סגור לשינוי ללא אישור PD חוזר')}
+      ${tile('archive',  '🗃', 'ארכיון',           counts.archive,    'gray',   'סיכומים מרבעונים קודמים')}
+      ${tile('all',      '👥', 'כל המתמחים',       counts.total,      'blue',   'רשימה מלאה עם סטטוס, תאריך אישור ומאשר')}
     </div>
 
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
@@ -6751,17 +6752,14 @@ function _renderPdMacroList(target) {
   let emptyMsg = '';
 
   if (filter === 'pending') {
-    rows = all.filter(r => r.status === 'pending');
+    // v2.10.7: pending tile now includes both fresh-pending AND drafts in progress
+    rows = all.filter(r => r.status === 'pending' || r.status === 'draft');
     titleLabel = '◷ ממתינים לסיכום';
     emptyMsg = 'אין כרגע הערכות שממתינות לסיכום PD ברבעון זה.';
   } else if (filter === 'approved') {
     rows = all.filter(r => r.status === 'approved');
     titleLabel = '✓ אושרו ברבעון';
     emptyMsg = 'עדיין לא אישרת אף סיכום ברבעון זה.';
-  } else if (filter === 'drafts') {
-    rows = all.filter(r => r.status === 'draft');
-    titleLabel = '✎ טיוטות שלי';
-    emptyMsg = 'אין טיוטות שמורות.';
   } else if (filter === 'archive') {
     rows = _buildArchiveRows(qid);
     titleLabel = '🗃 ארכיון (רבעונים קודמים)';
