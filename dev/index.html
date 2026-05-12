@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.3-dev';
-const APP_VERSION_DATE = '9.5.2026';
-const APP_VERSION_NOTES = "v2.10.3: רויטל קוזין וגלעד שחק הוגדרו כ-PD (הרשאות מלאות). Race condition mitigation: באנר אזהרה אם הערכה כבר אושרה ע\"י PD אחר + confirm חזק לפני replace.";
+const APP_VERSION = '2.10.4-dev';
+const APP_VERSION_DATE = '11.5.2026';
+const APP_VERSION_NOTES = "v2.10.4: רויטל קוזין (PD רכזת) — סינון תפריט: אין משוב מהיר/הערכה תקופתית למילוי (היא רק מאשרת). תשתית לסינון נע\"י-משתמש (NAV_USER_OVERRIDES).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2554,6 +2554,30 @@ const NAV_BY_ROLE = {
   ],
 };
 
+// v2.10.4: Per-user nav overrides — used to hide nav items for specific users
+// even when their role would normally show them.
+// Example: רויטל קוזין is PD (full permissions) but should NOT see micro/macro fill screens
+// because she is the program coordinator who only reviews & approves, not fills evaluations.
+const NAV_USER_OVERRIDES = {
+  'pd-cuzin': {
+    hide: ['attending-micro', 'attending-macro']
+  }
+  // Future: add more user-specific overrides here
+};
+
+function _filterNavForUser(items) {
+  try {
+    const uid = currentUser && currentUser.id;
+    if (!uid) return items;
+    const override = NAV_USER_OVERRIDES[uid];
+    if (!override || !override.hide || !override.hide.length) return items;
+    const hideSet = new Set(override.hide);
+    return items.filter(it => !hideSet.has(it.id));
+  } catch (e) {
+    return items;
+  }
+}
+
 // Helper: returns true if role can view full department data (PD or Coordinator)
 function isAdminRole(role) {
   return role === 'pd' || role === 'coordinator';
@@ -2582,7 +2606,8 @@ function buildSidebar() {
   `;
 
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = NAV_BY_ROLE[currentRole].map(item => `
+  const navItems = _filterNavForUser(NAV_BY_ROLE[currentRole] || []);
+  nav.innerHTML = navItems.map(item => `
     ${item.divider ? '<div class="border-t border-gray-100 my-2 mx-3"></div>' : ''}
     <a href="#" onclick="navigateTo('${item.id}'); return false;" class="sidebar-item ${currentScreen === item.id ? 'active' : 'text-gray-600'} flex items-center gap-2.5 px-3 py-2 mx-1 rounded-md text-xs">
       <span class="${currentScreen === item.id ? 'text-blue-600' : 'text-gray-400'}">${item.icon}</span>
@@ -2594,7 +2619,7 @@ function buildSidebar() {
 function buildMobileNav() {
   // v2.9.8: 4 first items + "עוד" (More) opens an upward sheet with the rest.
   // Without this, methodology + settings were unreachable on mobile.
-  const allItems = NAV_BY_ROLE[currentRole] || [];
+  const allItems = _filterNavForUser(NAV_BY_ROLE[currentRole] || []);
   const MAX_VISIBLE = 4;
   const showMore = allItems.length > MAX_VISIBLE;
   const visible = showMore ? allItems.slice(0, MAX_VISIBLE) : allItems.slice(0, 5);
@@ -2776,6 +2801,16 @@ function applyTheme(theme) {
 }
 
 function navigateTo(screenId) {
+  // v2.10.4: block screens hidden via NAV_USER_OVERRIDES (defense in depth)
+  try {
+    const uid = currentUser && currentUser.id;
+    const override = uid && NAV_USER_OVERRIDES[uid];
+    if (override && override.hide && override.hide.includes(screenId)) {
+      console.warn('[NAV] Blocked navigation to', screenId, 'for user', uid);
+      return;
+    }
+  } catch (e) { /* ignore */ }
+
   // ── Auto-save macro draft when navigating away from a macro form ──
   const macroScreens = ['attending-macro', 'resident-self', 'chief-self'];
   if (macroScreens.includes(currentScreen) && screenId !== currentScreen) {
@@ -5875,6 +5910,14 @@ async function approveMacro() {
       DEMO_SEED_EVALUATIONS.push({ ...approvedEntry, _devSeed: true });
       showToast('✅ הסיכום אושר ונשלח למתמחה (dev)', 'success');
       logToAudit('approve_macro_summary', { residentId, quarterId, dev: true });
+      // v2.10.4: closure popup + refresh form to show closure banner
+      _pdMacroEditUnlocked = false;
+      try {
+        const _appName = currentUser?.name || 'PD';
+        const _appTime = _fmtDateTimeHe(approvedEntry.timestamp);
+        setTimeout(() => alert(`🔒 ${_appName} סגר/ה את ההערכה ב-${_appTime}.\n\nהסיכום נשלח למתמחה ונוסף לתיק ההתמחות.`), 100);
+      } catch (e) { /* ignore */ }
+      renderMacroPdScreen();
     } catch (e) {
       console.error('Approve macro (dev) error:', e);
       showToast('שגיאה בשמירה מקומית', 'error');
@@ -5910,6 +5953,14 @@ async function approveMacro() {
       try { _saveToLocalHistory(approvedEntry); } catch (e) { /* ignore */ }
       showToast('✅ הסיכום אושר ונשלח למתמחה', 'success');
       logToAudit('approve_macro_summary', { residentId, quarterId });
+      // v2.10.4: closure popup + refresh form to show closure banner
+      _pdMacroEditUnlocked = false;
+      try {
+        const _appName = currentUser?.name || 'PD';
+        const _appTime = _fmtDateTimeHe(approvedEntry.timestamp);
+        setTimeout(() => alert(`🔒 ${_appName} סגר/ה את ההערכה ב-${_appTime}.\n\nהסיכום נשלח למתמחה ונוסף לתיק ההתמחות.`), 100);
+      } catch (e) { /* ignore */ }
+      renderMacroPdScreen();
     } else {
       const msg = result?.error || result?.message || 'שגיאה לא ידועה';
       showToast('שגיאה: ' + msg, 'error');
@@ -6110,6 +6161,112 @@ const MACRO_DEMO_DATA = {
 let CURRENT_MACRO_RESIDENT_NAME = null;
 let CURRENT_MACRO_QUARTER_ID = null;
 
+// v2.10.4: PD macro screen subviews — tile-based dashboard
+// 'tiles' = top-level 5 status tiles (default landing)
+// 'list'  = list of residents filtered by a tile category
+// 'form'  = the original PD summary review/approve form
+let _pdMacroSubview = 'tiles';
+let _pdMacroTileFilter = null;  // 'pending' | 'approved' | 'drafts' | 'archive' | 'all'
+// When a previously-approved eval is being viewed, the form is LOCKED.
+// User must explicitly click "עדכן סיכום" to set this true and unlock save buttons.
+let _pdMacroEditUnlocked = false;
+let _pdMacroReadOnlyView = false;  // 'צפה בסיכום הקודם' — pure view mode (no Save buttons at all)
+
+// v2.10.4: classify a resident's PD macro status for the current quarter.
+// Status:
+//   'approved' — PD already approved final summary
+//   'draft'    — current PD has a draft saved (pd_draft subType) but not yet approved
+//   'pending'  — at least one final macro exists from attendings/self, but PD hasn't acted
+//   'no_evals' — no macro evals at all this quarter
+function _categorizePdMacroStatusForResident(residentObj, quarterId) {
+  if (!residentObj || !quarterId) return { status: 'no_evals' };
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    const rid = residentObj.id;
+    // Most recent approval for this resident+quarter (in case multiple PDs approved over time)
+    const approved = all
+      .filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === rid && h.quarterId === quarterId)
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))[0];
+    if (approved) {
+      return {
+        status: 'approved',
+        approvalDate: approved.timestamp || approved.date || null,
+        approverName: approved.evaluatorName || 'PD',
+        approverId: approved.evaluatorId || null,
+        record: approved
+      };
+    }
+    // Drafts by current PD
+    const myDrafts = all.filter(h =>
+      h.type === 'macro' && (h.subType === 'pd_draft' || h.subType === 'draft') &&
+      h.residentId === rid && h.quarterId === quarterId &&
+      (h.evaluatorId === (currentUser && currentUser.id) || h.evaluatorRole === 'pd')
+    );
+    if (myDrafts.length) {
+      const latest = myDrafts.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))[0];
+      return { status: 'draft', draftDate: latest.timestamp || null, record: latest };
+    }
+    // Final macros submitted by attendings or self → pending PD review
+    const hasFinals = all.some(h =>
+      h.type === 'macro' && h.subType === 'final' &&
+      h.residentId === rid && h.quarterId === quarterId
+    );
+    if (hasFinals) return { status: 'pending' };
+    return { status: 'no_evals' };
+  } catch (e) {
+    return { status: 'no_evals' };
+  }
+}
+
+// v2.10.4: returns array { resident, status, approvalDate, approverName, ... }
+// for ALL residents (used by "כל המתמחים" tile and to compute counts)
+function _listAllResidentsWithPdMacroStatus(quarterId) {
+  return RESIDENTS.map(r => {
+    const info = _categorizePdMacroStatusForResident(r, quarterId);
+    return { resident: r, ...info };
+  });
+}
+
+// Returns counts per tile {pending, approved, drafts, archive_count, total}
+function _countPdMacroByStatus(quarterId) {
+  const list = _listAllResidentsWithPdMacroStatus(quarterId);
+  let pending = 0, approved = 0, drafts = 0;
+  list.forEach(r => {
+    if (r.status === 'pending') pending++;
+    else if (r.status === 'approved') approved++;
+    else if (r.status === 'draft') drafts++;
+  });
+  // Archive count = total prior-quarter approvals across all residents
+  let archiveCount = 0;
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    archiveCount = all.filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.quarterId !== quarterId).length;
+  } catch (e) { /* ignore */ }
+  return { pending, approved, drafts, archive: archiveCount, total: RESIDENTS.length };
+}
+
+// v2.10.4: navigation helpers between subviews
+function _pdMacroGoToTiles()  { _pdMacroSubview = 'tiles';  _pdMacroTileFilter = null; _pdMacroEditUnlocked = false; _pdMacroReadOnlyView = false; renderMacroPdScreen(); }
+function _pdMacroGoToList(tile) { _pdMacroSubview = 'list';  _pdMacroTileFilter = tile; _pdMacroEditUnlocked = false; _pdMacroReadOnlyView = false; renderMacroPdScreen(); }
+function _pdMacroOpenForm(name, opts) {
+  CURRENT_MACRO_RESIDENT_NAME = name;
+  _pdMacroSubview = 'form';
+  _pdMacroEditUnlocked = !!(opts && opts.edit);
+  _pdMacroReadOnlyView = !!(opts && opts.view);
+  renderMacroPdScreen();
+}
+
+// v2.10.4: format ISO date in Hebrew locale for display
+function _fmtDateTimeHe(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return iso; }
+}
+
 function listResidentsWithMacroEvalsForQuarter(quarterId) {
   // Build map of resident → submission count for this quarter
   // Merges DEMO_SEED_EVALUATIONS + localStorage history
@@ -6169,6 +6326,14 @@ function renderMacroPdScreen() {
     const now = new Date();
     const q = Math.floor(now.getMonth() / 3) + 1;
     CURRENT_MACRO_QUARTER_ID = `${now.getFullYear()}-Q${q}`;
+  }
+
+  // v2.10.4: route based on subview (tiles dashboard / list / form)
+  const isReadOnlyRole = currentRole === 'coordinator';
+  if (!isReadOnlyRole) {
+    if (_pdMacroSubview === 'tiles') { return _renderPdMacroTiles(target); }
+    if (_pdMacroSubview === 'list')  { return _renderPdMacroList(target);  }
+    // else: fall through to 'form' subview (original logic below)
   }
 
   const availableResidents = listResidentsWithMacroEvalsForQuarter(CURRENT_MACRO_QUARTER_ID);
@@ -6251,8 +6416,13 @@ function renderMacroPdScreen() {
     }
   } catch (e) { /* ignore */ }
 
+  // v2.10.4: in tiles-mode (PD/coordinator), show a back-to-tiles button at top
+  const _showBackBtn = !isReadOnly;
+  const _approvedByMe = _existingApproval && currentUser && _existingApproval.evaluatorId === currentUser.id;
+
   target.innerHTML = `
-    <div class="mb-5">
+    <div class="mb-4">
+      ${_showBackBtn ? `<button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>` : ''}
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 class="text-lg font-semibold">הערכות תקופתיות</h1>
@@ -6262,17 +6432,27 @@ function renderMacroPdScreen() {
       </div>
     </div>
 
-    ${_existingApproval && !isReadOnly ? `
-      <div class="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 mb-4 flex items-start gap-3">
-        <span class="text-2xl shrink-0">⚠️</span>
-        <div class="flex-1 text-xs">
-          <div class="font-semibold text-amber-900 mb-1">הערכה זו כבר אושרה</div>
-          <div class="text-amber-800 leading-relaxed">
-            <strong>${escapeHtml(_existingApproval.evaluatorName || 'PD אחר')}</strong>
-            אישר/ה את ההערכה ב-${new Date(_existingApproval.timestamp).toLocaleDateString('he-IL')} בשעה ${new Date(_existingApproval.timestamp).toLocaleTimeString('he-IL', {hour: '2-digit', minute: '2-digit'})}.
-            <br>אם תאשר/י שוב — האישור הקיים יוחלף בזה שלך והנתונים שלו לא יוצגו יותר במערכת.
-            <strong class="text-amber-900">בדוק/י עם ה-PD השני לפני שאתה ממשיך/ה.</strong>
+    ${_existingApproval && !isReadOnly && !_pdMacroEditUnlocked ? `
+      <div class="bg-${_approvedByMe ? 'green' : 'amber'}-50 border-2 border-${_approvedByMe ? 'green' : 'amber'}-300 rounded-xl p-4 mb-4 macro-pd-closure-actions">
+        <div class="flex items-start gap-3 mb-3">
+          <span class="text-2xl shrink-0">${_approvedByMe ? '🔒' : '⚠️'}</span>
+          <div class="flex-1 text-xs">
+            <div class="font-semibold text-${_approvedByMe ? 'green' : 'amber'}-900 mb-1">
+              ${_approvedByMe ? 'הסיכום נסגר ואושר' : 'הערכה זו כבר אושרה ע״י PD אחר'}
+            </div>
+            <div class="text-${_approvedByMe ? 'green' : 'amber'}-800 leading-relaxed">
+              <strong>${escapeHtml(_existingApproval.evaluatorName || 'PD')}</strong>
+              אישר/ה את הסיכום ב-<strong>${_fmtDateTimeHe(_existingApproval.timestamp)}</strong>.
+              ${_approvedByMe
+                ? '<br>הסיכום סגור לעריכה. ניתן לצפות בו, לעדכן (יווצר אישור חדש) או לפתוח את התיק האישי.'
+                : '<br>אם תעדכן/י את הסיכום — האישור הקיים יוחלף ע״י שלך. <strong>מומלץ לתאם עם ה-PD שאישר/ה לפני שינוי.</strong>'}
+            </div>
           </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="_pdMacroUnlockForEdit()" class="text-xs ${_approvedByMe ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'} text-white px-3 py-1.5 rounded-lg">✎ עדכן סיכום</button>
+          <button onclick="_pdMacroOpenResidentPortfolio()" class="text-xs bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">📂 פתח תיק אישי</button>
+          <button onclick="_pdMacroGoToTiles()" class="text-xs bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">‹ חזרה לאריחים</button>
         </div>
       </div>
     ` : ''}
@@ -6496,6 +6676,224 @@ function renderMacroPdScreen() {
   `;
   // v2.9.10: wire live updates of the weighted final score when PD edits comp scores
   if (!isReadOnly) _wirePdScoreLiveUpdate();
+
+  // v2.10.4: if the eval is closed (already approved) and the user is NOT in edit-unlock mode,
+  // disable all inputs so the form acts like a read-only view of the previous approval.
+  // The closure banner above the form provides the unlock button.
+  try {
+    if (_pdMacroFormIsClosed()) {
+      _pdMacroLockFormInputs();
+    }
+  } catch (e) { console.warn('lock form failed', e); }
+}
+
+// v2.10.4 ─── PD Macro: Tiles Dashboard ──────────────────────────────────────
+function _renderPdMacroTiles(target) {
+  const qid = CURRENT_MACRO_QUARTER_ID;
+  const counts = _countPdMacroByStatus(qid);
+
+  const tile = (key, icon, title, count, color, desc) => `
+    <button onclick="_pdMacroGoToList('${key}')"
+            class="text-right bg-white rounded-xl border border-gray-200 p-4 hover:border-${color}-300 hover:shadow-sm transition cursor-pointer">
+      <div class="flex items-start justify-between mb-2">
+        <div class="w-10 h-10 rounded-lg bg-${color}-50 text-${color}-600 flex items-center justify-center text-lg">${icon}</div>
+        <div class="text-2xl font-semibold text-${color}-700">${count}</div>
+      </div>
+      <div class="text-sm font-medium text-gray-900 mb-0.5">${title}</div>
+      <div class="text-xs text-gray-500 leading-relaxed">${desc}</div>
+    </button>
+  `;
+
+  target.innerHTML = `
+    <div class="mb-5">
+      <h1 class="text-lg font-semibold">הערכות תקופתיות (PD)</h1>
+      <p class="text-xs text-gray-500 mt-0.5">ניהול סיכומי PD לרבעון <strong>${qid}</strong></p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+      ${tile('pending',  '◷',  'ממתינים לסיכום',  counts.pending,  'amber',  'בכירים הגישו, אין עדיין אישור PD')}
+      ${tile('approved', '✓',  'אושרו ברבעון',     counts.approved, 'green',  'הסיכום אושר ונחתם — סגור לשינוי ללא אישור PD חוזר')}
+      ${tile('drafts',   '✎',  'טיוטות שלי',       counts.drafts,   'purple', 'טיוטות שמורות בשמך — לא נשלחו עדיין למתמחה')}
+      ${tile('archive',  '🗃', 'ארכיון',           counts.archive,  'gray',   'סיכומים מרבעונים קודמים')}
+      ${tile('all',      '👥', 'כל המתמחים',       counts.total,    'blue',   'רשימה מלאה עם סטטוס, תאריך אישור ומאשר')}
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
+      💡 לחץ/י על אריח כדי לפתוח רשימה ולעבור לסיכום פרטני של מתמחה. אישור סיכום הוא פעולה לא הפיכה — לאחר אישור, הסיכום נסגר עד שתבחר/י לעדכן אותו במפורש.
+    </div>
+  `;
+}
+
+// v2.10.4 ─── PD Macro: Resident List filtered by tile ───────────────────────
+function _renderPdMacroList(target) {
+  const qid = CURRENT_MACRO_QUARTER_ID;
+  const filter = _pdMacroTileFilter || 'all';
+  const all = _listAllResidentsWithPdMacroStatus(qid);
+
+  let rows = [];
+  let titleLabel = '';
+  let emptyMsg = '';
+
+  if (filter === 'pending') {
+    rows = all.filter(r => r.status === 'pending');
+    titleLabel = '◷ ממתינים לסיכום';
+    emptyMsg = 'אין כרגע הערכות שממתינות לסיכום PD ברבעון זה.';
+  } else if (filter === 'approved') {
+    rows = all.filter(r => r.status === 'approved');
+    titleLabel = '✓ אושרו ברבעון';
+    emptyMsg = 'עדיין לא אישרת אף סיכום ברבעון זה.';
+  } else if (filter === 'drafts') {
+    rows = all.filter(r => r.status === 'draft');
+    titleLabel = '✎ טיוטות שלי';
+    emptyMsg = 'אין טיוטות שמורות.';
+  } else if (filter === 'archive') {
+    rows = _buildArchiveRows(qid);
+    titleLabel = '🗃 ארכיון (רבעונים קודמים)';
+    emptyMsg = 'אין סיכומים מרבעונים קודמים.';
+  } else {  // 'all'
+    rows = all;
+    titleLabel = '👥 כל המתמחים';
+    emptyMsg = 'אין מתמחים ברשימה.';
+  }
+
+  const statusBadge = (status) => {
+    if (status === 'approved') return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ אושר</span>';
+    if (status === 'pending')  return '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">◷ ממתין</span>';
+    if (status === 'draft')    return '<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">✎ טיוטה</span>';
+    return '<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">— אין הערכות —</span>';
+  };
+
+  const isArchive = filter === 'archive';
+  const tableRows = rows.length === 0 ? '' : rows.map((r) => {
+    const isRow = isArchive;
+    const resident = isRow ? r.resident : r.resident;
+    const status = r.status || 'approved';
+    const pgyLabel = resident && resident.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][resident.pgy-1]}׳` : '';
+    const approvalCell = r.approvalDate
+      ? `<div class="text-xs text-gray-700">${_fmtDateTimeHe(r.approvalDate)}</div>
+         <div class="text-xs text-gray-400">${escapeHtml(r.approverName || '')}</div>`
+      : '<div class="text-xs text-gray-300">—</div>';
+    const quarterCell = isArchive ? `<td class="px-3 py-2.5 text-xs text-gray-600">${r.quarterId || '—'}</td>` : '';
+    const openLabel = status === 'approved' ? 'פתח (סגור)' : status === 'draft' ? 'המשך טיוטה' : 'פתח לסיכום';
+    const openIcon = status === 'approved' ? '🔒' : status === 'draft' ? '✎' : '→';
+    return `
+      <tr class="border-b border-gray-100 hover:bg-gray-50">
+        <td class="px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-semibold shrink-0">
+              ${resident.name.split(' ').map(w=>w[0]).slice(0,2).join('')}
+            </div>
+            <div>
+              <div class="text-sm font-medium">${escapeHtml(resident.name)}</div>
+              <div class="text-xs text-gray-400">${pgyLabel}</div>
+            </div>
+          </div>
+        </td>
+        <td class="px-3 py-2.5">${statusBadge(status)}</td>
+        ${quarterCell}
+        <td class="px-3 py-2.5">${approvalCell}</td>
+        <td class="px-3 py-2.5 text-left">
+          <button onclick="_pdMacroOpenForm('${escapeHtml(resident.name)}', ${status === 'approved' ? "{view:true}" : "{}"})"
+                  class="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700">
+            ${openIcon} ${openLabel}
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  target.innerHTML = `
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div>
+        <button onclick="_pdMacroGoToTiles()" class="text-xs text-purple-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+        <h1 class="text-lg font-semibold">${titleLabel}</h1>
+        <p class="text-xs text-gray-500 mt-0.5">רבעון ${CURRENT_MACRO_QUARTER_ID} · ${rows.length} רשומות</p>
+      </div>
+    </div>
+
+    ${rows.length === 0 ? `
+      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <div class="text-3xl mb-2">📋</div>
+        <div class="text-sm text-gray-500">${emptyMsg}</div>
+      </div>
+    ` : `
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-gray-50">
+            <tr class="text-xs text-gray-500 uppercase">
+              <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+              <th class="px-3 py-2 text-right font-medium">סטטוס</th>
+              ${isArchive ? '<th class="px-3 py-2 text-right font-medium">רבעון</th>' : ''}
+              <th class="px-3 py-2 text-right font-medium">תאריך אישור / מאשר</th>
+              <th class="px-3 py-2 text-left font-medium">פעולה</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    `}
+  `;
+}
+
+// v2.10.4: build archive rows — one row per past approval (not per resident)
+function _buildArchiveRows(currentQid) {
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    return all
+      .filter(h => h.type === 'macro' && h.subType === 'pd_approved' && h.quarterId !== currentQid)
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+      .map(h => {
+        const r = RESIDENTS.find(x => x.id === h.residentId) || { name: h.residentName || '?', id: h.residentId };
+        return {
+          resident: r,
+          status: 'approved',
+          approvalDate: h.timestamp || h.date,
+          approverName: h.evaluatorName,
+          quarterId: h.quarterId,
+          record: h,
+        };
+      });
+  } catch (e) { return []; }
+}
+
+// v2.10.4: form-closure detection — true if the current resident+quarter has a pd_approved
+function _pdMacroFormIsClosed() {
+  if (_pdMacroEditUnlocked) return false;  // user explicitly unlocked
+  if (!CURRENT_MACRO_RESIDENT_NAME || !CURRENT_MACRO_QUARTER_ID) return false;
+  const resident = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+  if (!resident) return false;
+  const info = _categorizePdMacroStatusForResident(resident, CURRENT_MACRO_QUARTER_ID);
+  return info.status === 'approved';
+}
+
+// v2.10.4: lock form when viewing a closed eval (until "עדכן סיכום" is clicked)
+function _pdMacroLockFormInputs() {
+  const screen = document.getElementById('screen-pd-macro');
+  if (!screen) return;
+  screen.querySelectorAll('textarea, input[type="text"], input[type="number"], input[type="checkbox"], select').forEach(el => {
+    if (el.closest('.macro-pd-closure-actions')) return;  // don't disable action buttons inside banner
+    el.disabled = true;
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') el.classList.add('bg-gray-50');
+  });
+  // Hide save/approve buttons completely — only the closure banner buttons remain
+  screen.querySelectorAll('button[onclick*="saveDraftMacro"], button[onclick*="approveMacro"]').forEach(b => b.style.display = 'none');
+}
+
+function _pdMacroUnlockForEdit() {
+  if (!confirm('עדכון הסיכום ייצור אישור חדש שיחליף את האישור הקיים.\n\nהאישור הקודם יישאר ב-Drive כרישום היסטוריה, אבל הנתונים החדשים יהיו אלה שיוצגו במערכת.\n\nלהמשיך?')) return;
+  _pdMacroEditUnlocked = true;
+  _pdMacroReadOnlyView = false;
+  renderMacroPdScreen();
+}
+
+function _pdMacroOpenResidentPortfolio() {
+  // Cross-screen navigation: open this resident in the PD portfolio view
+  try {
+    const resident = RESIDENTS.find(r => r.name === CURRENT_MACRO_RESIDENT_NAME);
+    if (resident) window._pdPortfolioResidentId = resident.id;
+  } catch (e) { /* ignore */ }
+  navigateTo('pd-portfolio');
 }
 
 function toggleAllAttendingComments() {
@@ -9693,29 +10091,44 @@ function renderStaffList() {
 function renderUserRow(u, currentTab, isPdViewer) {
   const isArchived = !!u.archivedAt;
   const bgClass = isArchived ? 'bg-gray-50 opacity-75' : (u.isDynamic ? 'bg-pink-50' : '');
-  
+
+  // v2.10.4: merge profile overlay (photo, additional roles, edited name/email)
+  const profile = _getProfile(u.id);
+  const displayName  = profile.name  || u.name;
+  const displayEmail = profile.email || u.email;
+  const displayStart = profile.start || u.start;
+  const additionalRoleLabels = (profile.additionalRoles || [])
+    .map(id => ADDITIONAL_ROLE_OPTIONS.find(o => o.id === id))
+    .filter(Boolean);
+
   const tags = [];
   if (u.isDemo) tags.push('<span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">DEMO</span>');
   if (u.isDynamic) tags.push('<span class="text-xs bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded">חדש</span>');
-  if (u.start) tags.push(`<span class="text-xs text-gray-400">${u.start}</span>`);
+  if (displayStart) tags.push(`<span class="text-xs text-gray-400">${displayStart}</span>`);
   if (u.promotedTo) tags.push(`<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">↑ ${u.promotedTo === 'attending' ? 'הועלה לבכיר' : u.promotedTo}</span>`);
+  if (profile.promotedTo) tags.push(`<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">↑ סומן ל-${profile.promotedTo === 'pd' ? 'PD' : 'בכיר'}</span>`);
   if (u.replacedBy && currentTab === 'archive') tags.push('<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">הוחלף</span>');
-  
+  additionalRoleLabels.forEach(opt => {
+    tags.push(`<span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title="${escapeAttr(opt.label)}">${opt.icon} ${escapeHtml(opt.label)}</span>`);
+  });
+
   // Action buttons — depend on PD viewer + tab + user state
   let actions = '';
   if (isPdViewer) {
     if (currentTab === 'active' && !isArchived) {
       actions = `
-        <button onclick="showArchiveUserModal('${u.id}', '${escapeAttr(u.name)}', '${u.role}')" 
+        <button onclick="showEditUserModal('${escapeAttr(u.id)}', '${escapeAttr(displayName)}', '${u.role}', '${escapeAttr(displayEmail || '')}', '${escapeAttr(displayStart || '')}')"
+                class="text-xs text-purple-600 hover:underline" title="עריכת נתונים">✎</button>
+        <button onclick="showArchiveUserModal('${u.id}', '${escapeAttr(displayName)}', '${u.role}')"
                 class="text-xs text-gray-600 hover:text-gray-900 hover:underline" title="העבר לארכיון">📦</button>
-        <button onclick="showReplaceUserModal('${u.id}', '${escapeAttr(u.name)}', '${u.role}')" 
+        <button onclick="showReplaceUserModal('${u.id}', '${escapeAttr(displayName)}', '${u.role}')"
                 class="text-xs text-blue-600 hover:underline" title="החלף בתפקיד">🔄</button>
-        ${u.role === 'resident' ? `<button onclick="showPromoteResidentModal('${u.id}', '${escapeAttr(u.name)}', '${escapeAttr(u.email || '')}')" 
+        ${u.role === 'resident' ? `<button onclick="showPromoteResidentModal('${u.id}', '${escapeAttr(displayName)}', '${escapeAttr(displayEmail || '')}')"
                 class="text-xs text-purple-600 hover:underline" title="קדם לבכיר">↑</button>` : ''}
       `;
     } else if (currentTab === 'archive' && isArchived) {
       actions = `
-        <button onclick="restoreUserFromArchive('${u.id}', '${escapeAttr(u.name)}')" 
+        <button onclick="restoreUserFromArchive('${u.id}', '${escapeAttr(displayName)}')"
                 class="text-xs text-green-600 hover:underline" title="שחזר לפעיל">♻ החזר</button>
       `;
     }
@@ -9733,11 +10146,12 @@ function renderUserRow(u, currentTab, isPdViewer) {
   return `
     <div class="px-2 py-1.5 hover:bg-white rounded text-xs ${bgClass}">
       <div class="flex items-center gap-2">
-        <span class="flex-1">
-          ${u.name}
-          ${tags.length > 0 ? ' ' + tags.join(' ') : ''}
+        ${_renderUserAvatar(u.id, displayName, 'w-7 h-7')}
+        <span class="flex-1 flex flex-wrap items-center gap-1">
+          <span>${escapeHtml(displayName)}</span>
+          ${tags.length > 0 ? tags.join(' ') : ''}
         </span>
-        <span class="text-gray-400 text-xs" style="direction:ltr">${u.email || '—'}</span>
+        <span class="text-gray-400 text-xs" style="direction:ltr">${escapeHtml(displayEmail || '—')}</span>
         <div class="flex items-center gap-1.5 shrink-0">${actions}</div>
       </div>
       ${archiveInfo}
@@ -9747,6 +10161,257 @@ function renderUserRow(u, currentTab, isPdViewer) {
 
 function escapeAttr(s) {
   return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v2.10.4 — USER PROFILES (Edit User overlay)
+// Stores per-user overlay data: photo (data URL), additional roles,
+// edited name/email/start, etc. Keyed by user.id. Survives across sessions
+// in localStorage. In prod, this should sync to backend via update_user action.
+// ═══════════════════════════════════════════════════════════════════
+const USER_PROFILES_KEY = 'cbme_user_profiles';
+
+// Available additional-role tags. Editable by PD per user.
+const ADDITIONAL_ROLE_OPTIONS = [
+  { id: 'tutor',         label: 'נע"ת (טיוטור)',           icon: '👨‍🏫' },
+  { id: 'on_call_mgr',   label: 'אחראי סידור תורנויות',    icon: '📅' },
+  { id: 'research_lead', label: 'אחראי מחקר',              icon: '🔬' },
+  { id: 'teaching_lead', label: 'אחראי הוראה',             icon: '📚' },
+  { id: 'simulation',    label: 'אחראי סימולציה',         icon: '🧠' },
+  { id: 'qa_lead',       label: 'אחראי איכות',            icon: '⚙' },
+  { id: 'pd_right_hand', label: 'יד ימין של PD',          icon: '⭐' },
+];
+
+function _getUserProfiles() {
+  try { return JSON.parse(localStorage.getItem(USER_PROFILES_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function _saveUserProfiles(obj) {
+  try { return safeSetItem(USER_PROFILES_KEY, JSON.stringify(obj)); }
+  catch (e) { console.warn('User profiles save failed:', e); return false; }
+}
+function _getProfile(userId) {
+  if (!userId) return {};
+  return _getUserProfiles()[userId] || {};
+}
+function _patchProfile(userId, patch) {
+  const all = _getUserProfiles();
+  all[userId] = { ...(all[userId] || {}), ...patch, updatedAt: new Date().toISOString(), updatedBy: currentUser?.id || null };
+  return _saveUserProfiles(all);
+}
+
+// Renders avatar — uses photo if present in profile, else initials
+function _renderUserAvatar(userId, userName, sizeClass) {
+  sizeClass = sizeClass || 'w-10 h-10';
+  const profile = _getProfile(userId);
+  const initials = (userName || '?').split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('');
+  if (profile.photoDataUrl) {
+    return `<img src="${escapeAttr(profile.photoDataUrl)}" alt="${escapeHtml(userName || '')}" class="${sizeClass} rounded-full object-cover border border-gray-200">`;
+  }
+  return `<div class="${sizeClass} rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-semibold">${escapeHtml(initials)}</div>`;
+}
+
+// Returns array of additional-role IDs assigned to a user
+function _getUserAdditionalRoles(userId) {
+  return _getProfile(userId).additionalRoles || [];
+}
+function _getUserAdditionalRoleLabels(userId) {
+  const ids = _getUserAdditionalRoles(userId);
+  return ids.map(id => ADDITIONAL_ROLE_OPTIONS.find(o => o.id === id)).filter(Boolean);
+}
+
+function showEditUserModal(userId, userName, userRole, userEmail, userStart) {
+  const profile = _getProfile(userId);
+  // Effective values: profile override or fallback to passed-in
+  const eName  = profile.name  || userName  || '';
+  const eEmail = profile.email || userEmail || '';
+  const eStart = profile.start || userStart || '';
+  const ePhoto = profile.photoDataUrl || '';
+  const eAdditionalRoles = profile.additionalRoles || [];
+  const isResident = userRole === 'resident';
+
+  const modal = document.createElement('div');
+  modal.id = 'edit-user-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl p-5 max-w-lg w-full my-8 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl">✎</span>
+        <h3 class="text-base font-semibold">עריכת משתמש/ת</h3>
+      </div>
+
+      <!-- Photo -->
+      <div class="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+        <div id="edit-user-photo-preview">
+          ${ePhoto
+            ? `<img src="${escapeAttr(ePhoto)}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`
+            : `<div class="w-20 h-20 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-lg font-semibold">${escapeHtml((eName||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</div>`}
+        </div>
+        <div class="flex-1">
+          <div class="text-xs text-gray-700 font-medium mb-1">תמונת פרופיל</div>
+          <label class="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 cursor-pointer inline-flex items-center gap-1">
+            <span>⤒</span> העלה תמונה
+            <input type="file" accept="image/*" class="hidden" onchange="_onEditUserPhotoChange(this)">
+          </label>
+          ${ePhoto ? '<button onclick="_clearEditUserPhoto()" class="text-xs text-red-600 hover:underline mr-2">הסר</button>' : ''}
+          <div class="text-xs text-gray-400 mt-1">JPG/PNG · עד 500KB · פרופורציה מומלצת 1:1</div>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">שם מלא</label>
+          <input id="edit-user-name" type="text" value="${escapeAttr(eName)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500">
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">אימייל</label>
+          <input id="edit-user-email" type="email" value="${escapeAttr(eEmail)}" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+        </div>
+        ${isResident ? `
+        <div>
+          <label class="text-xs font-medium text-gray-700 block mb-1">תחילת התמחות (YYYY-MM)</label>
+          <input id="edit-user-start" type="text" value="${escapeAttr(eStart)}" placeholder="2024-09" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500" style="direction:ltr">
+          <div id="edit-user-pgy-hint" class="text-xs text-gray-500 mt-1"></div>
+        </div>
+        ` : ''}
+
+        <!-- Additional Roles -->
+        <div class="border-t border-gray-100 pt-3">
+          <label class="text-xs font-medium text-gray-700 block mb-2">תפקידים נוספים</label>
+          <div class="grid grid-cols-2 gap-2">
+            ${ADDITIONAL_ROLE_OPTIONS.map(opt => `
+              <label class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                <input type="checkbox" class="edit-user-add-role" data-role-id="${opt.id}" ${eAdditionalRoles.includes(opt.id) ? 'checked' : ''}>
+                <span class="text-xs">${opt.icon} ${opt.label}</span>
+              </label>
+            `).join('')}
+          </div>
+          <div class="text-xs text-gray-400 mt-2">מסומן = המשתמש/ת ממלא/ת את התפקיד הזה כעת.</div>
+        </div>
+
+        <!-- Promote section -->
+        ${(userRole === 'resident' || userRole === 'attending' || userRole === 'chief') ? `
+        <div class="border-t border-gray-100 pt-3">
+          <label class="text-xs font-medium text-gray-700 block mb-2">קידום תפקיד</label>
+          <div class="flex flex-wrap gap-2">
+            ${userRole === 'resident' ? `
+              <button onclick="_promoteUserFromEdit('${escapeAttr(userId)}', '${escapeAttr(eName)}', '${escapeAttr(eEmail)}', 'attending')" class="text-xs px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">↑ קדם לבכיר/ה</button>
+            ` : ''}
+            ${(userRole === 'attending' || userRole === 'chief') ? `
+              <button onclick="_promoteUserFromEdit('${escapeAttr(userId)}', '${escapeAttr(eName)}', '${escapeAttr(eEmail)}', 'pd')" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">↑ קדם ל-PD</button>
+            ` : ''}
+          </div>
+          <div class="text-xs text-gray-400 mt-2">קידום תפקיד יעדכן את ההרשאות במערכת. השינוי דורש אישור.</div>
+        </div>
+        ` : ''}
+
+        <div id="edit-user-error" class="text-xs text-red-600 hidden bg-red-50 border border-red-200 rounded-lg p-2"></div>
+      </div>
+
+      <div class="flex gap-2 mt-5">
+        <button onclick="document.getElementById('edit-user-modal').remove()" class="flex-1 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">ביטול</button>
+        <button onclick="submitEditUser('${escapeAttr(userId)}', '${escapeAttr(userRole)}')" class="flex-1 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 font-medium">💾 שמור נתונים</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Live PGY hint for residents
+  if (isResident) {
+    const startInput = document.getElementById('edit-user-start');
+    const updateHint = () => {
+      const val = startInput.value.trim();
+      const hintEl = document.getElementById('edit-user-pgy-hint');
+      if (!hintEl) return;
+      if (!val || !/^\d{4}-\d{2}$/.test(val)) { hintEl.textContent = ''; return; }
+      const [y, m] = val.split('-').map(Number);
+      const today = new Date();
+      const months = (today.getFullYear() - y) * 12 + (today.getMonth() - (m - 1));
+      if (months < 0) hintEl.textContent = '📅 תאריך עתידי';
+      else {
+        const pgy = Math.min(Math.floor(months / 12) + 1, 6);
+        hintEl.textContent = `📊 PGY ${pgy} (שנה ${['א','ב','ג','ד','ה','ו'][pgy-1]}׳)`;
+      }
+    };
+    startInput.addEventListener('input', updateHint);
+    updateHint();
+  }
+}
+
+// Read file → data URL → store in modal (not persisted yet)
+function _onEditUserPhotoChange(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 500 * 1024) {
+    alert('התמונה גדולה מ-500KB. אנא בחר/י תמונה קטנה יותר.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    window._editUserPhotoDataUrl = dataUrl;
+    const preview = document.getElementById('edit-user-photo-preview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" class="w-20 h-20 rounded-full object-cover border border-gray-200">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _clearEditUserPhoto() {
+  window._editUserPhotoDataUrl = '__CLEAR__';
+  const preview = document.getElementById('edit-user-photo-preview');
+  if (preview) preview.innerHTML = `<div class="w-20 h-20 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">ללא תמונה</div>`;
+}
+
+function _promoteUserFromEdit(userId, userName, userEmail, targetRole) {
+  const targetLabel = targetRole === 'pd' ? 'מנהל/ת תוכנית (PD)' : 'רופא/ה בכיר/ה';
+  if (!confirm(`לקדם את ${userName} ל-${targetLabel}?\n\nהשינוי יעדכן את ההרשאות וההצגות במערכת. הפעולה תכנס לתוקף לאחר deploy backend (כרגע — שמירה מקומית בלבד).`)) return;
+  _patchProfile(userId, { promotedTo: targetRole, promotedAt: new Date().toISOString() });
+  showToast(`✅ ${userName} סומן/ה לקידום ל-${targetLabel}. הקידום ייכנס לתוקף מלא כשבקאנד יעדכן את ה-USERS array.`, 'success');
+  document.getElementById('edit-user-modal').remove();
+  if (currentScreen === 'pd-data') renderDataManagementScreen();
+}
+
+async function submitEditUser(userId, userRole) {
+  const errEl = document.getElementById('edit-user-error');
+  errEl.classList.add('hidden');
+
+  const name  = document.getElementById('edit-user-name').value.trim();
+  const email = document.getElementById('edit-user-email').value.trim().toLowerCase();
+  const startEl = document.getElementById('edit-user-start');
+  const start = startEl ? startEl.value.trim() : '';
+
+  if (!name) { errEl.textContent = 'שם חובה'; errEl.classList.remove('hidden'); return; }
+  if (email && !email.includes('@')) { errEl.textContent = 'אימייל לא תקין'; errEl.classList.remove('hidden'); return; }
+  if (userRole === 'resident' && start && !/^\d{4}-\d{2}$/.test(start)) {
+    errEl.textContent = 'תחילת התמחות בפורמט YYYY-MM'; errEl.classList.remove('hidden'); return;
+  }
+
+  // Gather additional roles
+  const additionalRoles = Array.from(document.querySelectorAll('.edit-user-add-role:checked')).map(cb => cb.dataset.roleId);
+
+  // Build patch
+  const patch = { name, email, additionalRoles };
+  if (start) patch.start = start;
+
+  // Photo update — only if user changed it via the file picker
+  if (window._editUserPhotoDataUrl === '__CLEAR__') {
+    patch.photoDataUrl = null;
+  } else if (typeof window._editUserPhotoDataUrl === 'string' && window._editUserPhotoDataUrl.startsWith('data:image')) {
+    patch.photoDataUrl = window._editUserPhotoDataUrl;
+  }
+
+  const ok = _patchProfile(userId, patch);
+  if (!ok) {
+    errEl.textContent = 'שגיאה בשמירה — ייתכן שאחסון מקומי מלא'; errEl.classList.remove('hidden'); return;
+  }
+
+  // Cleanup pending photo state
+  window._editUserPhotoDataUrl = null;
+
+  showToast(`✅ ${name} עודכן/ה`, 'success');
+  document.getElementById('edit-user-modal').remove();
+  if (currentScreen === 'pd-data') renderDataManagementScreen();
 }
 
 // v2.9.20: Global HTML escape utility — use whenever interpolating user-controlled
