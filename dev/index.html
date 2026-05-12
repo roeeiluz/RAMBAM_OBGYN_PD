@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.12-dev';
+const APP_VERSION = '2.10.13-dev';
 const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.12: עמוד 'הערכה תקופתית' (בכירים/PD) קיבל אריחים: פתח חדשה / טיוטות / סטטוס כל ההערכות. כל הערכה מקבלת סטטוס (טיוטה/סגורה/סגורה לאחר דדליין).";
+const APP_VERSION_NOTES = "v2.10.13: סידור מחדש של תפריט PD לפי בקשת המשתמש (4 קבוצות עם מפרידים), שינוי שם 'הערכה תקופתית' → 'משוב תקופתי' ל-PD+בכירים.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2496,20 +2496,23 @@ const ROLES = [
 ];
 
 const NAV_BY_ROLE = {
+  // v2.10.13: reordered + renamed per user request
+  // Group 1: evaluation actions   | Group 2: cross-cuts and resident files
+  // Group 3: data + reports/AI    | Group 4: methodology + settings
   pd: [
-    { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
-    { id: 'attending-micro', label: 'משוב מהיר',  icon: '⚡' },
-    { id: 'attending-macro', label: 'הערכה תקופתית', icon: '◐' },
-    { id: 'eval-status',  label: 'היסטוריית משובים והערכות', icon: '◷', divider: true },
-    { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
-    { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
-    { id: 'pd-macro',     label: 'סיכום תקופתי (PD)', icon: '✎' },
-    { id: 'pd-cross',     label: 'חתך רוחבי',     icon: '⊞' },
-    { id: 'pd-data',      label: 'ניהול נתונים',  icon: '⤒' },
-    { id: 'pd-ai',        label: 'חיפוש חכם (AI)', icon: '✦', divider: true },
-    { id: 'pd-reports',   label: 'הפקת דוחות',     icon: '⤓' },
-    { id: 'methodology',  label: 'מתודולוגיה',     icon: '📖', divider: true },
-    { id: 'settings',     label: 'הגדרות',         icon: '⚙' },
+    { id: 'pd-dashboard',    label: 'דשבורד מחלקתי',           icon: '▦' },
+    { id: 'attending-micro', label: 'משוב מהיר',                icon: '⚡' },
+    { id: 'attending-macro', label: 'משוב תקופתי',              icon: '◐' },
+    { id: 'eval-requests',   label: 'בקשות הערכה',              icon: '✉' },
+    { id: 'pd-macro',        label: 'סיכום תקופתי (PD)',        icon: '✎' },
+    { id: 'pd-cross',        label: 'חתך רוחבי',                icon: '⊞', divider: true },
+    { id: 'pd-portfolio',    label: 'תיק אישי מתמחה',           icon: '👤' },
+    { id: 'pd-data',         label: 'ניהול נתונים',             icon: '⤒', divider: true },
+    { id: 'eval-status',     label: 'היסטוריית משובים והערכות', icon: '◷' },
+    { id: 'pd-ai',           label: 'חיפוש חכם (AI)',           icon: '✦' },
+    { id: 'pd-reports',      label: 'הפקת דוחות',               icon: '⤓' },
+    { id: 'methodology',     label: 'מתודולוגיה',               icon: '📖', divider: true },
+    { id: 'settings',        label: 'הגדרות',                   icon: '⚙' },
   ],
   coordinator: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
@@ -2525,7 +2528,7 @@ const NAV_BY_ROLE = {
   attending: [
     { id: 'attending-micro',      label: 'משוב מהיר',    icon: '⚡' },
     { id: 'senior-requests',      label: 'בקשות משובים והערכותי', icon: '✉' },
-    { id: 'attending-macro',      label: 'הערכה תקופתית',   icon: '◐' },
+    { id: 'attending-macro',      label: 'משוב תקופתי',     icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
     { id: 'eval-status',          label: 'היסטוריית משובים והערכות', icon: '◷' },
     { id: 'methodology',          label: 'מתודולוגיה',       icon: '📖', divider: true },
