@@ -304,7 +304,8 @@
            Cycle management now lives in ניהול נתונים → ניהול תקופות הערכה. -->
       <div class="mb-4">
         <h1 class="text-lg font-semibold">דשבורד מחלקתי</h1>
-        <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span> · <span id="cycle-strip" class="text-gray-700"></span></p>
+        <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span></p>
+        <span id="cycle-strip" class="hidden"></span>
       </div>
 
       <!-- v2.10.18: Inbox — actionable items computed from current state -->
@@ -693,9 +694,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.20-dev';
+const APP_VERSION = '2.10.21-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.20: רשימת מתמחים ללא בקשת הערכה הוחזרה כבאנר סגול בולט בראש מסך 'בקשות הערכה' (לא יותר sidebar שאפשר לפספס). chips לחיצים לפתיחת טופס. + v2.10.19 (escapeAttr, DD-MM-YYYY, self-eval, אדם resolve).";
+const APP_VERSION_NOTES = "v2.10.21: Inbox מאוחד — כל המידע הקריטי במקום אחד. סטטוס תקופת הערכה (פתוחה/לא), סיקור בקשות (נשלחו ל-X / טרם נשלחו ל-Y), סיכומים ממתינים לאישור, מתמחים מוכנים לפגישת משוב (יש להם הערכה עצמית + 3 בכירים). הוסר ה-cycle strip הכפול בכותרת.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3199,16 +3200,17 @@ function buildAll() {
 let pdCharts = {};
 let activePgyFilter = 'all';
 
-// v2.10.18: compute actionable inbox items for the PD/coordinator dashboard
-// Each item: { icon, title, sub, action, color, urgency }. Sorted by urgency desc.
+// v2.10.21: Inbox now consolidates ALL critical state in one place.
+// Cycle status is ALWAYS shown (open with deadline OR not opened with action).
+// Plus per-resident state: requests sent / not sent / pending approval / ready for meeting.
 function _computePdInbox() {
   const items = [];
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
-  // ── No active cycle (top priority) ──
+  // ── 1. Cycle status — ALWAYS first ──
   let activeCycle = null;
-  try { activeCycle = _getActiveCycle(); } catch (e) { /* helper not yet loaded */ }
+  try { activeCycle = _getActiveCycle(); } catch (e) {}
   if (!activeCycle) {
     items.push({
       urgency: 100,
@@ -3218,67 +3220,69 @@ function _computePdInbox() {
       action: { label: 'פתח תקופה ←', onclick: "navigateTo('pd-data')" }
     });
   } else {
-    // Submission deadline approaching (≤7 days)
     let days = null;
     try { days = _daysToSubmissionDeadline(); } catch (e) {}
-    if (days !== null && days >= 0 && days <= 7) {
+    const dlFmt = _fmtDateIL(activeCycle.submissionDeadline);
+    if (days === null) {
       items.push({
-        urgency: 90,
-        icon: '⏰', color: 'amber',
-        title: `דדליין ההגשה מתקרב — ${days === 0 ? 'היום!' : days + ' ימים נותרו'}`,
-        sub: `תקופה ${activeCycle.id} · יעד ${_fmtDateIL(activeCycle.submissionDeadline)}`,
+        urgency: 50,
+        icon: '📅', color: 'green',
+        title: `תקופת הערכה ${activeCycle.id} פתוחה`,
+        sub: `${_cycleTypeLabel(activeCycle.cycleType)} · אין דדליין מוגדר`,
         action: { label: 'נהל ←', onclick: "navigateTo('pd-data')" }
       });
-    } else if (days !== null && days < 0) {
+    } else if (days < 0) {
       items.push({
         urgency: 95,
         icon: '🚨', color: 'red',
         title: `דדליין ההגשה פג לפני ${Math.abs(days)} ימים`,
-        sub: `תקופה ${activeCycle.id} · יעד ${_fmtDateIL(activeCycle.submissionDeadline)} · נעילה סופית: ${_fmtDateIL(activeCycle.hardLockDate)}`,
+        sub: `תקופה ${activeCycle.id} · יעד ${dlFmt} · נעילה סופית: ${_fmtDateIL(activeCycle.hardLockDate)}`,
         action: { label: 'בדוק מצב ←', onclick: "navigateTo('pd-data')" }
+      });
+    } else if (days <= 7) {
+      items.push({
+        urgency: 90,
+        icon: '⏰', color: 'amber',
+        title: `דדליין ההגשה מתקרב — ${days === 0 ? 'היום!' : days + ' ימים נותרו'}`,
+        sub: `תקופה ${activeCycle.id} · יעד ${dlFmt}`,
+        action: { label: 'נהל ←', onclick: "navigateTo('pd-data')" }
+      });
+    } else {
+      items.push({
+        urgency: 40,
+        icon: '📅', color: 'green',
+        title: `תקופת הערכה ${activeCycle.id} פתוחה`,
+        sub: `יעד ${dlFmt} · ${days} ימים נותרו · ${_cycleTypeLabel(activeCycle.cycleType).split(' ')[0]}`,
+        action: { label: 'נהל ←', onclick: "navigateTo('pd-data')" }
       });
     }
   }
 
-  // ── Macro summaries pending PD approval ──
-  try {
-    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
-    const all = [..._getLocalHistory(), ...seed];
-    const cycleId = activeCycle?.id;
-    const myUserId = currentUser?.id;
-    // For each (resident, quarter) pair where a 'final' exists but no 'pd_approved' exists
-    const pairs = new Map();
-    all.forEach(h => {
-      if (h.type !== 'macro' || h.subType === 'draft') return;
-      const key = `${h.residentId}__${h.quarterId}`;
-      const existing = pairs.get(key) || { hasFinal: false, hasApproved: false, residentName: '', daysOldest: 0, qid: h.quarterId };
-      if (h.subType === 'final') {
-        existing.hasFinal = true;
-        existing.residentName = h.residentName || existing.residentName;
-        const days = Math.floor((Date.now() - new Date(h.timestamp || h.date || 0).getTime()) / (24*60*60*1000));
-        if (days > existing.daysOldest) existing.daysOldest = days;
-      }
-      if (h.subType === 'pd_approved') existing.hasApproved = true;
-      pairs.set(key, existing);
-    });
-    const pending = Array.from(pairs.values()).filter(p => p.hasFinal && !p.hasApproved);
-    if (pending.length > 0) {
-      // Find oldest waiting
-      const oldest = pending.sort((a, b) => b.daysOldest - a.daysOldest)[0];
-      const urgency = oldest.daysOldest > 14 ? 88 : oldest.daysOldest > 7 ? 75 : 60;
-      items.push({
-        urgency,
-        icon: '📝', color: oldest.daysOldest > 7 ? 'amber' : 'purple',
-        title: `${pending.length} ${pending.length === 1 ? 'סיכום' : 'סיכומים'} ממתינים לאישור שלך`,
-        sub: oldest.daysOldest > 0 ? `הוותיק ביותר: ${(oldest.residentName || '?').replace(/^ד"ר\s+/, '')} · לפני ${oldest.daysOldest} ימים` : 'הוגשו לאחרונה',
-        action: { label: 'פתח אריחים ←', onclick: "navigateTo('pd-macro')" }
-      });
-    }
-  } catch (e) { console.warn('inbox pending macros', e); }
-
-  // ── Open eval-requests past deadline ──
+  // ── 2. Eval-requests coverage — sent to N out of M residents ──
   try {
     const reqs = _getEvalRequests().filter(r => r.status === 'open');
+    const residentsWithReq = new Set(reqs.map(r => r.residentId));
+    const totalResidents = RESIDENTS.length;
+    const withCount = residentsWithReq.size;
+    const withoutCount = totalResidents - withCount;
+    if (withoutCount > 0) {
+      items.push({
+        urgency: 70,
+        icon: '📥', color: 'amber',
+        title: `טרם נשלחו בקשות הערכה ל-${withoutCount} ${withoutCount === 1 ? 'מתמחה' : 'מתמחים'}`,
+        sub: `נשלחו: ${withCount}/${totalResidents}`,
+        action: { label: 'שלח בקשות ←', onclick: "navigateTo('eval-requests')" }
+      });
+    } else if (totalResidents > 0) {
+      items.push({
+        urgency: 25,
+        icon: '✉', color: 'green',
+        title: `נשלחו בקשות הערכה לכל ${totalResidents} המתמחים`,
+        sub: 'כל המתמחים מקבלים הערכות בתקופה הנוכחית',
+        action: { label: 'צפה ←', onclick: "navigateTo('eval-requests')" }
+      });
+    }
+    // Overdue requests — separate urgent item
     const overdue = reqs.filter(r => r.deadline && r.deadline < todayIso);
     if (overdue.length > 0) {
       items.push({
@@ -3291,31 +3295,64 @@ function _computePdInbox() {
     }
   } catch (e) { /* ignore */ }
 
-  // ── Residents idle 30+ days without any eval ──
+  // ── 3. Macro summaries pending PD approval + 4. Ready-for-meeting ──
   try {
     const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
-    const all = [..._getLocalHistory(), ...seed].filter(h => h.subType !== 'draft');
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const idleResidents = RESIDENTS.filter(r => {
-      const rEvals = all.filter(h => h.residentId === r.id);
-      if (rEvals.length === 0) return true; // no evals at all
-      const lastTs = Math.max(...rEvals.map(h => new Date(h.timestamp || h.date || 0).getTime()));
-      return lastTs < thirtyDaysAgo;
+    const all = [..._getLocalHistory(), ...seed];
+    const pairs = new Map();
+    all.forEach(h => {
+      if (h.type !== 'macro' || h.subType === 'draft') return;
+      const key = `${h.residentId}__${h.quarterId}`;
+      const existing = pairs.get(key) || {
+        residentId: h.residentId, residentName: '',
+        hasFinalAttending: false, hasSelf: false, hasApproved: false,
+        attendingCount: 0, daysOldest: 0, qid: h.quarterId
+      };
+      if (h.subType === 'final') {
+        existing.residentName = h.residentName || existing.residentName;
+        if (h.evaluatorRole === 'resident') {
+          existing.hasSelf = true;
+        } else {
+          existing.hasFinalAttending = true;
+          existing.attendingCount++;
+        }
+        const days = Math.floor((Date.now() - new Date(h.timestamp || h.date || 0).getTime()) / (24*60*60*1000));
+        if (days > existing.daysOldest) existing.daysOldest = days;
+      }
+      if (h.subType === 'pd_approved') existing.hasApproved = true;
+      pairs.set(key, existing);
     });
-    if (idleResidents.length > 0) {
-      const names = idleResidents.slice(0, 3).map(r => r.name.split(' ')[0]).join(', ');
-      const more = idleResidents.length > 3 ? ` +${idleResidents.length - 3}` : '';
+
+    // 3. Pending PD approval — any (resident, quarter) with finals but no pd_approved
+    const pending = Array.from(pairs.values()).filter(p => (p.hasFinalAttending || p.hasSelf) && !p.hasApproved);
+    if (pending.length > 0) {
+      const oldest = pending.sort((a, b) => b.daysOldest - a.daysOldest)[0];
+      const urgency = oldest.daysOldest > 14 ? 88 : oldest.daysOldest > 7 ? 75 : 60;
       items.push({
-        urgency: 50,
-        icon: '😴', color: 'amber',
-        title: `${idleResidents.length} ${idleResidents.length === 1 ? 'מתמחה' : 'מתמחים'} מעל 30 ימים ללא הערכה`,
-        sub: `${names}${more}`,
-        action: { label: 'שלח בקשה ←', onclick: "navigateTo('eval-requests')" }
+        urgency,
+        icon: '📝', color: oldest.daysOldest > 7 ? 'amber' : 'purple',
+        title: `${pending.length} ${pending.length === 1 ? 'סיכום ממתין' : 'סיכומים ממתינים'} לאישור שלך`,
+        sub: oldest.daysOldest > 0 ? `הוותיק ביותר: ${(oldest.residentName || '?').replace(/^ד"ר\s+/, '')} · לפני ${oldest.daysOldest} ימים` : 'הוגשו לאחרונה',
+        action: { label: 'פתח אריחים ←', onclick: "navigateTo('pd-macro')" }
       });
     }
-  } catch (e) { /* ignore */ }
 
-  return items.sort((a, b) => b.urgency - a.urgency).slice(0, 5);
+    // 4. Ready for feedback meeting — has both self-eval AND ≥3 attending macros, not yet approved
+    const readyForMeeting = pending.filter(p => p.hasSelf && p.attendingCount >= 3);
+    if (readyForMeeting.length > 0) {
+      const names = readyForMeeting.slice(0, 2).map(p => (p.residentName || '?').replace(/^ד"ר\s+/, '')).join(', ');
+      const more = readyForMeeting.length > 2 ? ` +${readyForMeeting.length - 2}` : '';
+      items.push({
+        urgency: 65,
+        icon: '🤝', color: 'purple',
+        title: `${readyForMeeting.length} ${readyForMeeting.length === 1 ? 'מתמחה' : 'מתמחים'} מוכן/ים לפגישת משוב`,
+        sub: `${names}${more} · הערכה עצמית + 3+ בכירים הושלמו, מחכה לפגישת PD`,
+        action: { label: 'תאם פגישה ←', onclick: "navigateTo('pd-macro')" }
+      });
+    }
+  } catch (e) { console.warn('inbox approval/meeting', e); }
+
+  return items.sort((a, b) => b.urgency - a.urgency).slice(0, 6);
 }
 
 function _renderPdInbox() {
@@ -3368,21 +3405,11 @@ function renderPdDashboard() {
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
 
-  // v2.10.15: cycle deadline strip (replaces the removed dropdown + button at top)
+  // v2.10.21: cycle strip cleared — info now consolidated in the Inbox (no duplication)
   try {
     const stripEl = document.getElementById('cycle-strip');
-    if (stripEl) {
-      const ac = _getActiveCycle();
-      if (!ac) {
-        stripEl.innerHTML = '<span class="text-amber-700">⚠ טרם נפתחה תקופת הערכה — <a href="#" onclick="event.preventDefault(); navigateTo(\'pd-data\'); return false;" class="underline">קבע ב-ניהול נתונים</a></span>';
-      } else {
-        const days = _daysToSubmissionDeadline();
-        const color = days == null ? 'text-gray-500' : days < 0 ? 'text-red-600' : days <= 7 ? 'text-amber-700' : 'text-gray-700';
-        const daysLabel = days == null ? '' : days < 0 ? `(פג לפני ${Math.abs(days)} ימים)` : days === 0 ? '(היום!)' : `(${days} ימים נותרו)`;
-        stripEl.innerHTML = `<span class="${color}">📅 ${escapeHtml(ac.id)} ${_cycleTypeLabel(ac.cycleType).split(' ')[0]} · יעד ${_fmtDateIL(ac.submissionDeadline)} ${daysLabel}</span>`;
-      }
-    }
-  } catch (e) { console.warn('cycle strip render error', e); }
+    if (stripEl) stripEl.innerHTML = '';
+  } catch (e) { /* ignore */ }
 
   // v2.9.21: merge localStorage + DEMO_SEED_EVALUATIONS, dedup by timestamp+resident+type.
   // BUG-001: previous code only read localStorage; in dev/seed scenarios evals exist in
