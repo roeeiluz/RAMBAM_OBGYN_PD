@@ -300,17 +300,11 @@
     <!-- SCREEN: PD Dashboard                                  -->
     <!-- ===================================================== -->
     <section id="screen-pd-dashboard" class="screen">
-      <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
-        <div>
-          <h1 class="text-lg font-semibold">דשבורד מחלקתי</h1>
-          <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span></p>
-        </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <button onclick="startMacroQuarter()" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium">📅 פתח רבעון Macro</button>
-          <select class="text-xs px-3 py-1.5 border border-gray-200 rounded-lg bg-white">
-            <option>Q2 2026</option><option>Q1 2026</option>
-          </select>
-        </div>
+      <!-- v2.10.15: removed "Open Macro Quarter" button + dead quarter dropdown.
+           Cycle management now lives in ניהול נתונים → ניהול תקופות הערכה. -->
+      <div class="mb-5">
+        <h1 class="text-lg font-semibold">דשבורד מחלקתי</h1>
+        <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span> · <span id="cycle-strip" class="text-gray-700"></span></p>
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -696,9 +690,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.13';
-const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.13: סידור מחדש של תפריט PD לפי בקשת המשתמש (4 קבוצות עם מפרידים), שינוי שם 'הערכה תקופתית' → 'משוב תקופתי' ל-PD+בכירים.";
+const APP_VERSION = '2.10.15';
+const APP_VERSION_DATE = '13.5.2026';
+const APP_VERSION_NOTES = "v2.10.15: Cycle Configurator. ניהול תקופות הערכה בעורף הניהול (פתיחה, סגירה, ארכוב, עריכה). Q2/Q4 default=major, Q1/Q3=checkpoint. Hard lock = soft deadline +7 ימים. Dashboard מציג cycle strip + הוסר כפתור הפתיחה והdropdown המת.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -955,7 +949,77 @@ async function submitExamsToDrive(examsData) {
 }
 
 // Submit evaluation to Drive
+/**
+ * @typedef {Object} EvaluationEntry
+ * @property {'micro'|'macro'} type - Eval kind
+ * @property {'draft'|'final'|'pd_approved'|'submitted'} [subType]
+ * @property {string} evaluatorId
+ * @property {'pd'|'attending'|'chief'|'resident'|'coordinator'} [evaluatorRole]
+ * @property {string} [evaluatorName]
+ * @property {string} residentId
+ * @property {string} [residentName]
+ * @property {string} [quarterId] - Required for macro (e.g. '2026-Q2')
+ * @property {string} [category] - For micro: event category
+ * @property {Object<string,number>} [epaScores] - For micro
+ * @property {Object<string,{score: number|null, comment: string}>} [competencies] - For macro
+ * @property {Object<string,number>} [scores] - For macro draft: raw Likert per item
+ * @property {Array<{idx: number, value: string}>} [comments] - For macro draft: raw textareas
+ * @property {string} [visibleFeedback]
+ * @property {string} [privateNote]
+ * @property {boolean} [selfAssessment]
+ */
+
+/**
+ * v2.10.14 — Validates an evaluation entry shape before saving.
+ * Soft validation: returns {ok, errors, warnings}. Hard errors block save; warnings logged only.
+ * This catches the "competencies vs epaScores" type mismatch that produced silent
+ * 'אין פרטים נוספים' in portfolios for self-macro evals.
+ * @param {EvaluationEntry} e
+ * @returns {{ok: boolean, errors?: string[], warnings?: string[]}}
+ */
+function _validateEvaluation(e) {
+  const errors = [];
+  const warnings = [];
+  if (!e || typeof e !== 'object') return { ok: false, errors: ['evaluationData is null or not an object'] };
+
+  if (!e.type) errors.push('missing required field: type');
+  else if (!['micro', 'macro'].includes(e.type)) errors.push(`invalid type: "${e.type}" (expected 'micro' or 'macro')`);
+
+  if (!e.residentId) errors.push('missing required field: residentId');
+  if (!e.evaluatorId) warnings.push('missing evaluatorId (defaulting to "unknown")');
+
+  if (e.type === 'macro') {
+    if (!e.quarterId) errors.push('macro evaluations require quarterId (e.g. "2026-Q2")');
+    if (e.subType && !['draft', 'final', 'pd_approved'].includes(e.subType)) {
+      warnings.push(`macro: unknown subType "${e.subType}" (expected draft/final/pd_approved)`);
+    }
+    if (e.subType === 'final' && !e.competencies && !(Array.isArray(e.comments) && e.comments.length)) {
+      warnings.push('macro/final: empty content (no competencies and no comments) — portfolio will show empty');
+    }
+  }
+
+  if (e.type === 'micro') {
+    if (!e.epaScores || Object.keys(e.epaScores).length === 0) warnings.push('micro: missing or empty epaScores');
+    if (!e.category && !e.categoryLabel) warnings.push('micro: missing category info');
+  }
+
+  return errors.length > 0
+    ? { ok: false, errors, warnings }
+    : { ok: true, warnings };
+}
+
 async function submitEvaluation(evaluationData) {
+  // v2.10.14: schema validator — fail-fast on missing required fields, warn on shape drift
+  const _v = _validateEvaluation(evaluationData);
+  if (!_v.ok) {
+    console.error('[submitEvaluation] VALIDATION FAILED:', _v.errors, 'data:', evaluationData);
+    showToast('שגיאת תיקוף נתונים בהערכה. ראה/י Console.', 'error');
+    return { success: false, ok: false, errors: _v.errors };
+  }
+  if (_v.warnings && _v.warnings.length) {
+    console.warn('[submitEvaluation] validation warnings:', _v.warnings);
+  }
+
   if (!sessionToken) {
     showToast('שגיאה: אין session. התחבר מחדש.', 'error');
     return { success: false };
@@ -3093,6 +3157,22 @@ function renderPdDashboard() {
   document.getElementById('resident-count-sub').textContent = `${RESIDENTS.length} מתמחים פעילים`;
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
+
+  // v2.10.15: cycle deadline strip (replaces the removed dropdown + button at top)
+  try {
+    const stripEl = document.getElementById('cycle-strip');
+    if (stripEl) {
+      const ac = _getActiveCycle();
+      if (!ac) {
+        stripEl.innerHTML = '<span class="text-amber-700">⚠ טרם נפתחה תקופת הערכה — <a href="#" onclick="event.preventDefault(); navigateTo(\'pd-data\'); return false;" class="underline">קבע ב-ניהול נתונים</a></span>';
+      } else {
+        const days = _daysToSubmissionDeadline();
+        const color = days == null ? 'text-gray-500' : days < 0 ? 'text-red-600' : days <= 7 ? 'text-amber-700' : 'text-gray-700';
+        const daysLabel = days == null ? '' : days < 0 ? `(פג לפני ${Math.abs(days)} ימים)` : days === 0 ? '(היום!)' : `(${days} ימים נותרו)`;
+        stripEl.innerHTML = `<span class="${color}">📅 ${escapeHtml(ac.id)} ${_cycleTypeLabel(ac.cycleType).split(' ')[0]} · יעד ${escapeHtml(ac.submissionDeadline || '—')} ${daysLabel}</span>`;
+      }
+    }
+  } catch (e) { console.warn('cycle strip render error', e); }
 
   // v2.9.21: merge localStorage + DEMO_SEED_EVALUATIONS, dedup by timestamp+resident+type.
   // BUG-001: previous code only read localStorage; in dev/seed scenarios evals exist in
@@ -7024,6 +7104,198 @@ function toggleAllCompNotes() {
 // ═══════════════════════════════════════════════════════════════════
 const EVAL_REQUESTS_KEY = 'cbme_eval_requests';
 
+// ═══════════════════════════════════════════════════════════════════
+// v2.10.15: Evaluation Cycles — single source of truth for "current macro period"
+// Each cycle defines: quarter, type (major/checkpoint), deadlines, participants.
+// Q2 + Q4 default to 'major' (full macro). Q1 + Q3 default to 'checkpoint' (lighter).
+// Hard lock = submission deadline + 7 days. No edits after hard lock, even by submitter.
+// Storage: localStorage['cbme_eval_cycles'] (dev mode) or Drive (after backend deploy).
+// ═══════════════════════════════════════════════════════════════════
+const EVAL_CYCLES_KEY = 'cbme_eval_cycles';
+
+/** @typedef {Object} EvalCycle
+ * @property {string} id - quarter identifier, e.g. '2026-Q2'
+ * @property {'major'|'checkpoint'} cycleType
+ * @property {string} startDate - YYYY-MM-DD
+ * @property {string} submissionDeadline - YYYY-MM-DD (soft)
+ * @property {string} hardLockDate - YYYY-MM-DD (no edits after)
+ * @property {string[]} participatingResidents - resident.id list
+ * @property {'open'|'closed'|'archived'} status
+ * @property {string} openedBy - user.id
+ * @property {string} openedAt - ISO timestamp
+ * @property {string} [closedAt]
+ */
+
+function _getCycles() {
+  try { return JSON.parse(localStorage.getItem(EVAL_CYCLES_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function _saveCycles(arr) {
+  return safeSetItem(EVAL_CYCLES_KEY, JSON.stringify(arr));
+}
+function _patchCycle(cycleId, patch) {
+  const all = _getCycles();
+  const idx = all.findIndex(c => c.id === cycleId);
+  if (idx < 0) return false;
+  all[idx] = { ...all[idx], ...patch };
+  return _saveCycles(all);
+}
+
+/** Default cycle type for a quarter id ('2026-Q1'..'Q4'). */
+function _defaultCycleType(quarterId) {
+  if (!quarterId) return 'major';
+  const m = /Q(\d)/.exec(quarterId);
+  if (!m) return 'major';
+  const q = parseInt(m[1], 10);
+  return (q === 2 || q === 4) ? 'major' : 'checkpoint';
+}
+
+/** Compute the current calendar quarter id. */
+function _currentQuarterId() {
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  return `${now.getFullYear()}-Q${q}`;
+}
+
+/** Returns the active (open) cycle whose dates cover today, or the most recent open cycle. */
+function _getActiveCycle() {
+  const all = _getCycles();
+  const today = new Date().toISOString().slice(0, 10);
+  // Prefer cycles whose window covers today
+  const inWindow = all.filter(c => c.status === 'open' &&
+    (!c.startDate || c.startDate <= today) &&
+    (!c.hardLockDate || c.hardLockDate >= today));
+  if (inWindow.length) return inWindow.sort((a, b) => (b.openedAt || '').localeCompare(a.openedAt || ''))[0];
+  // Else: most recent open
+  const open = all.filter(c => c.status === 'open').sort((a, b) => (b.openedAt || '').localeCompare(a.openedAt || ''));
+  return open[0] || null;
+}
+
+/** Days remaining until the soft submission deadline (negative if past). null if no active cycle. */
+function _daysToSubmissionDeadline() {
+  const c = _getActiveCycle();
+  if (!c || !c.submissionDeadline) return null;
+  const today = new Date();
+  const dl = new Date(c.submissionDeadline + 'T23:59:59');
+  return Math.ceil((dl.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+/** Returns true if the cycle's hard lock date has passed (no edits allowed even by submitter). */
+function _isCycleHardLocked(cycle) {
+  if (!cycle || !cycle.hardLockDate) return false;
+  const lockTs = new Date(cycle.hardLockDate + 'T23:00:00').getTime();
+  return Date.now() > lockTs;
+}
+
+function _cycleTypeLabel(t) {
+  return t === 'checkpoint' ? 'בדיקת ביניים (checkpoint)' : 'הערכה תקופתית מלאה (major)';
+}
+function _cycleStatusBadge(c) {
+  if (!c) return '';
+  if (c.status === 'archived') return '<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">בארכיון</span>';
+  if (c.status === 'closed')   return '<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">נסגר</span>';
+  if (_isCycleHardLocked(c))   return '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">פעיל · נעול לעריכה</span>';
+  return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">פעיל</span>';
+}
+
+// v2.10.15: UI handlers for the configurator
+function _onCycleQuarterChange() {
+  const q = document.getElementById('cycle-quarter')?.value;
+  const t = _defaultCycleType(q);
+  const typeSelect = document.getElementById('cycle-type');
+  if (typeSelect) typeSelect.value = t;
+}
+function _onSoftDeadlineChange() {
+  const soft = document.getElementById('cycle-deadline')?.value;
+  if (!soft) return;
+  const d = new Date(soft);
+  d.setDate(d.getDate() + 7);
+  const hard = document.getElementById('cycle-hardlock');
+  if (hard) hard.value = d.toISOString().slice(0, 10);
+}
+
+function _openCycle() {
+  const qid    = document.getElementById('cycle-quarter')?.value;
+  const ctype  = document.getElementById('cycle-type')?.value;
+  const start  = document.getElementById('cycle-start')?.value;
+  const soft   = document.getElementById('cycle-deadline')?.value;
+  const hard   = document.getElementById('cycle-hardlock')?.value;
+  if (!qid || !ctype || !start || !soft || !hard) {
+    showToast('נא למלא את כל השדות', 'error');
+    return;
+  }
+  if (soft <= start) { showToast('דדליין צריך להיות אחרי תאריך ההתחלה', 'error'); return; }
+  if (hard < soft)   { showToast('נעילה סופית צריכה להיות אחרי דדליין ההגשה', 'error'); return; }
+
+  const all = _getCycles();
+  // Block if already exists (open or closed) — must archive/edit existing first
+  if (all.some(c => c.id === qid && c.status !== 'archived')) {
+    if (!confirm(`כבר קיימת תקופה ${qid}. לפתוח חדשה תחליף את הקיימת. להמשיך?`)) return;
+    // Archive the old one
+    const idx = all.findIndex(c => c.id === qid && c.status !== 'archived');
+    if (idx >= 0) all[idx].status = 'archived';
+  }
+
+  const newCycle = {
+    id: qid,
+    cycleType: ctype,
+    startDate: start,
+    submissionDeadline: soft,
+    hardLockDate: hard,
+    participatingResidents: RESIDENTS.map(r => r.id),
+    status: 'open',
+    openedBy: currentUser?.id || 'unknown',
+    openedAt: new Date().toISOString()
+  };
+  all.push(newCycle);
+  if (!_saveCycles(all)) {
+    showToast('שגיאה בשמירת התקופה', 'error');
+    return;
+  }
+  logToAudit('open_eval_cycle', { quarterId: qid, type: ctype, deadline: soft, hardLock: hard });
+  showToast(`✅ נפתחה תקופת הערכה ${qid} (${_cycleTypeLabel(ctype)})`, 'success');
+  renderDataManagementScreen();
+}
+
+function _closeCycle(cycleId) {
+  if (!confirm('לסגור את תקופת ההערכה? לאחר סגירה לא ניתן יהיה להגיש הערכות חדשות, אך הסיכומים שכבר אושרו יישארו זמינים.')) return;
+  if (!_patchCycle(cycleId, { status: 'closed', closedAt: new Date().toISOString() })) {
+    showToast('שגיאה בסגירה', 'error');
+    return;
+  }
+  logToAudit('close_eval_cycle', { quarterId: cycleId });
+  showToast(`✓ ${cycleId} נסגר`, 'success');
+  renderDataManagementScreen();
+}
+
+function _archiveCycle(cycleId) {
+  if (!confirm(`להעביר את ${cycleId} לארכיון? התקופה תוסר מהמסכים הפעילים אך תישאר בהיסטוריה.`)) return;
+  if (!_patchCycle(cycleId, { status: 'archived' })) {
+    showToast('שגיאה בהעברה לארכיון', 'error');
+    return;
+  }
+  logToAudit('archive_eval_cycle', { quarterId: cycleId });
+  showToast(`🗃 ${cycleId} בארכיון`, 'success');
+  renderDataManagementScreen();
+}
+
+function _editCycle(cycleId) {
+  const all = _getCycles();
+  const c = all.find(x => x.id === cycleId);
+  if (!c) return;
+  const newSoft = prompt(`דדליין הגשה חדש (YYYY-MM-DD) — נוכחי: ${c.submissionDeadline}`, c.submissionDeadline);
+  if (!newSoft) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newSoft)) { showToast('פורמט תאריך שגוי', 'error'); return; }
+  const newHard = prompt(`נעילה סופית (YYYY-MM-DD) — נוכחי: ${c.hardLockDate}`, c.hardLockDate);
+  if (!newHard) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newHard)) { showToast('פורמט תאריך שגוי', 'error'); return; }
+  if (newHard < newSoft) { showToast('נעילה סופית חייבת להיות אחרי דדליין ההגשה', 'error'); return; }
+  _patchCycle(cycleId, { submissionDeadline: newSoft, hardLockDate: newHard });
+  logToAudit('edit_eval_cycle', { quarterId: cycleId, deadline: newSoft, hardLock: newHard });
+  showToast(`✓ תאריכים עודכנו`, 'success');
+  renderDataManagementScreen();
+}
+
 function _getEvalRequests() {
   try { return JSON.parse(localStorage.getItem(EVAL_REQUESTS_KEY) || '[]'); }
   catch (e) { return []; }
@@ -7527,16 +7799,24 @@ function _attendingMacroState() {
 //   'draft' | 'closed' | 'closed_past_deadline'
 function _attendingMacroEvalStatus(e) {
   if (e.subType === 'draft') return 'draft';
-  // Final submitted: check whether the originating eval-request deadline has passed
+  // Final submitted: check whether the cycle hard-lock (v2.10.15) or eval-request deadline has passed
   try {
-    if (e.residentId && e.quarterId) {
-      const reqs = _getEvalRequests().filter(r =>
-        r.residentId === e.residentId && r.quarterId === e.quarterId && r.deadline
-      );
-      const latestDeadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop();
-      if (latestDeadline) {
-        const lockTs = new Date(latestDeadline + 'T23:00:00').getTime();
+    if (e.quarterId) {
+      const cycles = _getCycles();
+      const cycle = cycles.find(c => c.id === e.quarterId);
+      if (cycle && cycle.hardLockDate) {
+        const lockTs = new Date(cycle.hardLockDate + 'T23:00:00').getTime();
         if (Date.now() > lockTs) return 'closed_past_deadline';
+      } else if (e.residentId) {
+        // Fallback to eval-request deadline
+        const reqs = _getEvalRequests().filter(r =>
+          r.residentId === e.residentId && r.quarterId === e.quarterId && r.deadline
+        );
+        const latestDeadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop();
+        if (latestDeadline) {
+          const lockTs = new Date(latestDeadline + 'T23:00:00').getTime();
+          if (Date.now() > lockTs) return 'closed_past_deadline';
+        }
       }
     }
   } catch (ex) { /* ignore */ }
@@ -7731,21 +8011,29 @@ function _residentMacroState(mode) {
   const final = all.find(h => h.type === 'macro' && h.subType === 'final' && h.residentId === userId && h.quarterId === quarterId && h.evaluatorRole === 'resident');
   const approved = all.find(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === userId && h.quarterId === quarterId);
 
-  // v2.9.14: deadline lock — if a PD/coordinator sent an eval-request for this resident's
-  // current quarter that included them as a "self-eval" target (we use the request's deadline
-  // as the editing deadline for the resident's self-eval), AND it's past 23:00 on that day,
-  // updates are blocked.
-  // Look up open eval-requests for this resident+quarter to derive a deadline.
+  // Deadline lock: prefer active cycle's submission deadline (v2.10.15),
+  // fall back to per-request deadline (v2.9.14).
+  // After hard lock, edits are blocked even by the submitter.
   let deadlinePassed = false;
   let deadline = null;
   try {
-    const reqs = _getEvalRequests().filter(r => r.status === 'open' && r.residentId === userId && r.quarterId === quarterId);
-    if (reqs.length > 0) {
-      // Use the latest deadline among requests
-      deadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop() || null;
-      if (deadline) {
-        const lockTs = new Date(deadline + 'T23:00:00').getTime();
-        deadlinePassed = Date.now() > lockTs;
+    const activeCycle = _getActiveCycle();
+    if (activeCycle && activeCycle.id === quarterId) {
+      deadline = activeCycle.submissionDeadline || null;
+      // Hard lock (no edits at all) — uses hardLockDate
+      if (activeCycle.hardLockDate) {
+        const hardLockTs = new Date(activeCycle.hardLockDate + 'T23:00:00').getTime();
+        deadlinePassed = Date.now() > hardLockTs;
+      }
+    } else {
+      // Fallback to eval-request deadlines if no cycle is configured
+      const reqs = _getEvalRequests().filter(r => r.status === 'open' && r.residentId === userId && r.quarterId === quarterId);
+      if (reqs.length > 0) {
+        deadline = reqs.map(r => r.deadline).filter(Boolean).sort().pop() || null;
+        if (deadline) {
+          const lockTs = new Date(deadline + 'T23:00:00').getTime();
+          deadlinePassed = Date.now() > lockTs;
+        }
       }
     }
   } catch (e) { /* ignore */ }
@@ -10178,10 +10466,103 @@ function renderDataManagementScreen() {
   const procCount = Object.keys(PROCEDURES_DATA.procedures || {}).length;
   const cesCount = Object.keys(PROCEDURES_DATA.cesareans || {}).length;
 
+  // v2.10.15: cycles data for configurator
+  const _cycles = _getCycles().slice().sort((a, b) => (b.openedAt || '').localeCompare(a.openedAt || ''));
+  const _activeCycle = _getActiveCycle();
+  const _suggestedQuarter = _currentQuarterId();
+  const _suggestedType = _defaultCycleType(_suggestedQuarter);
+  // Default soft deadline: 60 days from now. Hard lock: deadline + 7 days.
+  const _todayIso = new Date().toISOString().slice(0, 10);
+  const _dlPlus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
   target.innerHTML = `
     <div class="mb-5">
       <h1 class="text-lg font-semibold">ניהול נתונים</h1>
-      <p class="text-xs text-gray-500 mt-0.5">העלאת קבצי דיווח שבועיים. הזנה חדשה דורסת את הקודמת.</p>
+      <p class="text-xs text-gray-500 mt-0.5">תקופות הערכה, פעולות מתמחים, מבחנים וניהול צוות.</p>
+    </div>
+
+    <!-- v2.10.15: Macro Cycle Configurator -->
+    <div class="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+      <div class="flex items-start justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div class="text-base font-semibold mb-1">📅 ניהול תקופות הערכה</div>
+          <div class="text-xs text-gray-500">פתיחת רבעון חדש, הגדרת דדליין, ניטור מצב.</div>
+        </div>
+        ${_activeCycle ? `<div>${_cycleStatusBadge(_activeCycle)} <span class="text-xs text-gray-500 mr-2">${escapeHtml(_activeCycle.id)} · ${_cycleTypeLabel(_activeCycle.cycleType)}</span></div>` : '<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">אין תקופה פעילה</span>'}
+      </div>
+
+      ${!_activeCycle ? `
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 text-xs text-blue-900">
+          💡 ברירת מחדל: רבעון נוכחי <strong>${escapeHtml(_suggestedQuarter)}</strong> = <strong>${_cycleTypeLabel(_suggestedType)}</strong>. ניתן לשנות.
+        </div>
+        <div class="grid md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">רבעון</label>
+            <select id="cycle-quarter" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" onchange="_onCycleQuarterChange()">
+              ${[0, 1].flatMap(yOff => [1,2,3,4].map(q => {
+                const y = new Date().getFullYear() + yOff;
+                const qid = `${y}-Q${q}`;
+                return `<option value="${qid}" ${qid === _suggestedQuarter ? 'selected' : ''}>${qid}</option>`;
+              })).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">סוג מחזור</label>
+            <select id="cycle-type" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+              <option value="major" ${_suggestedType === 'major' ? 'selected' : ''}>הערכה מלאה (major)</option>
+              <option value="checkpoint" ${_suggestedType === 'checkpoint' ? 'selected' : ''}>בדיקת ביניים (checkpoint)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">תאריך התחלה</label>
+            <input id="cycle-start" type="date" value="${_todayIso}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" style="direction:ltr">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">דדליין הגשה (רך)</label>
+            <input id="cycle-deadline" type="date" value="${_dlPlus(60)}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" style="direction:ltr" onchange="_onSoftDeadlineChange()">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 block mb-1">נעילה סופית (לאחר דדליין)</label>
+            <input id="cycle-hardlock" type="date" value="${_dlPlus(67)}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" style="direction:ltr">
+            <div class="text-xs text-gray-400 mt-1">7 ימים אחרי דדליין הגשה. ניתן לשנות.</div>
+          </div>
+          <div class="flex items-end">
+            <button onclick="_openCycle()" class="w-full px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700">📅 פתח תקופת הערכה</button>
+          </div>
+        </div>
+        <div class="text-xs text-gray-500 mt-3">משתתפים: כל המתמחים הפעילים (${RESIDENTS.length}). ניתן יהיה לסנן לפי מתמחים ספציפיים בעתיד.</div>
+      ` : `
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-xs">
+          <div class="font-semibold text-green-900 mb-1">תקופה פעילה: ${escapeHtml(_activeCycle.id)}</div>
+          <div class="grid grid-cols-2 gap-2 text-green-800">
+            <div>📅 התחלה: <strong>${escapeHtml(_activeCycle.startDate || '—')}</strong></div>
+            <div>⏰ דדליין הגשה: <strong>${escapeHtml(_activeCycle.submissionDeadline || '—')}</strong></div>
+            <div>🔒 נעילה סופית: <strong>${escapeHtml(_activeCycle.hardLockDate || '—')}</strong></div>
+            <div>👥 משתתפים: <strong>${(_activeCycle.participatingResidents || []).length}</strong></div>
+          </div>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="_closeCycle('${escapeAttr(_activeCycle.id)}')" class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700">✓ סגור תקופה</button>
+          <button onclick="_archiveCycle('${escapeAttr(_activeCycle.id)}')" class="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">🗃 העבר לארכיון</button>
+          <button onclick="_editCycle('${escapeAttr(_activeCycle.id)}')" class="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">✎ ערוך תאריכים</button>
+        </div>
+      `}
+
+      ${_cycles.length > 0 ? `
+        <details class="mt-4 border-t border-gray-100 pt-3">
+          <summary class="text-xs font-medium text-gray-600 cursor-pointer hover:text-gray-900">היסטוריית תקופות (${_cycles.length})</summary>
+          <div class="mt-2 space-y-1">
+            ${_cycles.map(c => `
+              <div class="flex items-center gap-3 text-xs py-1 border-b border-gray-50">
+                <span class="font-medium w-20">${escapeHtml(c.id)}</span>
+                <span class="text-gray-500">${_cycleTypeLabel(c.cycleType).split(' ')[0]}</span>
+                <span class="text-gray-400 flex-1">${escapeHtml(c.submissionDeadline || '—')}</span>
+                ${_cycleStatusBadge(c)}
+              </div>
+            `).join('')}
+          </div>
+        </details>
+      ` : ''}
     </div>
 
     <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-900">
