@@ -1527,7 +1527,8 @@ function showAppScreen() {
   // Update top bar user info
   const userInfoEl = document.getElementById('current-user-info');
   if (userInfoEl) {
-    userInfoEl.innerHTML = `${user.name} · ${roleObj ? roleObj.label : currentRole}`;
+    // v2.10.30: defensive escapeHtml on user.name (was missing — single remaining XSS sink in dashboard top bar)
+    userInfoEl.innerHTML = `${escapeHtml(user.name)} · ${escapeHtml(roleObj ? roleObj.label : currentRole)}`;
   }
   // v2.9.9: also populate the short-role label shown next to short username on mobile
   const shortRoleEl = document.getElementById('user-short-role');
