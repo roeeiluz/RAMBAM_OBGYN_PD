@@ -5132,14 +5132,20 @@ function _renderResidentNotifications(residentId) {
   const lastSeen = localStorage.getItem(key);
   const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
 
-  // Gather all evals where THIS resident is the subject and they're FINAL (not draft, not self)
+  // Gather all evals where THIS resident is the SUBJECT and were given by OTHERS.
+  // v2.10.31.1: exclude ANY self-given eval (resident already knows what they wrote about themselves)
   const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
   const all = [..._getLocalHistory(), ...seed];
   const myEvals = all.filter(h => {
     if (h.residentId !== residentId && h.residentName !== CURRENT_RESIDENT?.name) return false;
-    if (h.evaluatorRole === 'resident' && h.selfAssessment) return false;  // exclude self
     if (h.subType === 'draft') return false;
-    return h.type === 'micro' || h.type === 'macro';
+    if (h.type !== 'micro' && h.type !== 'macro') return false;
+    // Exclude ANY self-eval: evaluatorRole=resident OR selfAssessment flag OR evaluator IS the subject
+    if (h.evaluatorRole === 'resident') return false;
+    if (h.selfAssessment) return false;
+    if (h.evaluatorId && h.evaluatorId === residentId) return false;
+    if (h.evaluatorEmail && CURRENT_RESIDENT?.email && h.evaluatorEmail === CURRENT_RESIDENT.email) return false;
+    return true;
   });
 
   // Split into new (since last seen) and recent (last 14 days for context)
