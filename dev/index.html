@@ -314,6 +314,9 @@
       <!-- v2.10.22: Submission Matrix — per-resident progress for active cycle -->
       <div id="pd-submission-matrix" class="mb-4"></div>
 
+      <!-- v2.10.31: Attending leaderboard + workload distribution — for fair attribution and load balancing -->
+      <div id="pd-attending-stats" class="mb-4"></div>
+
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500">מתמחים פעילים</div>
@@ -444,6 +447,9 @@
         </div>
         <span class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full">תחילת תוכנית</span>
       </div>
+
+      <!-- v2.10.31: New feedback notification banner — populated by _renderResidentNotifications -->
+      <div id="resident-notifications-banner"></div>
 
       <!-- v2.9.12: Pending action banner — populated by renderResidentDashboard if there's a pending eval request -->
       <div id="resident-pending-banner"></div>
@@ -697,9 +703,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.30-dev';
+const APP_VERSION = '2.10.31-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.30: (a) Meeting Report — UI חדש בpd-reports (בחר/י מתמחה → פתח דוח). (b) הדוח עכשיו רנדר HTML מעוצב במקום markdown מונואספייס: תarטיק טבלאות, headings צבעוניים, blockquotes. (c) הגדרות תכולה — 6 toggles (פעולות/מבחנים/מאקרו/מיקרו/פד אישי/נקודות מומלצות). (d) חזרת hr עם הודעה אם הדוח מבוסס על תקופה fallback. (e) Self-micro id collision fix — _selfMicroEl(id) מסקופ למסך הנכון (chief לא ראה את העבר שלו).";
+const APP_VERSION_NOTES = "v2.10.31: שתי תוספות מבוססות ביקורת המועצה — שיפור היענות והוגנות. (a) Resident dashboard notification banner — תצוגה של משובים חדשים שטרם נצפו, עם 'סמן כנקרא' + לינק לפורטפוליו (push-style indication שמפעיל לולאת פידבק). (b) PD dashboard 'מצטיינים במשובים + עומס לבכיר' — leaderboard לטופ 5, רשימת חלשים, ספירת בכירים שלא נתנו 30 יום. כלי איזון.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -4370,6 +4376,136 @@ function _renderPdInbox() {
   `;
 }
 
+// v2.10.31: Attending stats widget — leaderboard (top feedback givers) + workload distribution.
+// Shows last 30 days, separable into "micros" + "macros" + total.
+// Purpose: PD sees which seniors are engaged + identifies imbalances (one senior giving 20 evals while others give 0).
+function _renderPdAttendingStats() {
+  const el = document.getElementById('pd-attending-stats');
+  if (!el) return;
+
+  // Time boundary — last 30 days
+  const cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+  const all = [..._getLocalHistory(), ...seed];
+
+  // Aggregate by evaluator (attending or chief). Skip residents/self.
+  const byEvaluator = new Map();
+  all.forEach(h => {
+    if (h.subType === 'draft') return;
+    if (h.selfAssessment) return;
+    if (h.evaluatorRole === 'resident') return;  // skip self-evals
+    if (!h.evaluatorName && !h.evaluatorId) return;
+    const ts = new Date(h.timestamp || h.date || 0).getTime();
+    if (ts < cutoffMs) return;
+    const key = h.evaluatorId || h.evaluatorEmail || h.evaluatorName;
+    if (!byEvaluator.has(key)) byEvaluator.set(key, {
+      name: h.evaluatorName || h.evaluatorEmail || key,
+      role: h.evaluatorRole || 'attending',
+      micros: 0, macros: 0, total: 0,
+      residentsServed: new Set(),
+    });
+    const rec = byEvaluator.get(key);
+    if (h.type === 'micro') rec.micros++;
+    else if (h.type === 'macro') rec.macros++;
+    rec.total++;
+    if (h.residentId || h.residentName) rec.residentsServed.add(h.residentId || h.residentName);
+  });
+
+  const records = Array.from(byEvaluator.values()).map(r => ({...r, residentCount: r.residentsServed.size}));
+  records.sort((a, b) => b.total - a.total);
+
+  if (records.length === 0) {
+    el.innerHTML = `
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-base">📊</span>
+          <span class="text-sm font-semibold text-gray-900">מצטיינים בעומס משוב (30 ימים אחרונים)</span>
+        </div>
+        <div class="text-xs text-gray-400 py-2">אין משובים שניתנו ב-30 הימים האחרונים.</div>
+      </div>`;
+    return;
+  }
+
+  // Stats for distribution view
+  const totalMicros = records.reduce((s, r) => s + r.micros, 0);
+  const totalMacros = records.reduce((s, r) => s + r.macros, 0);
+  const grand = totalMicros + totalMacros;
+  const evalGivers = records.length;
+  // All seniors (attendings + chiefs) for "who's NOT giving" identification
+  const allSeniorIds = (typeof STAFF !== 'undefined') ?
+    [...(STAFF.attending || []), ...(STAFF.chief || [])].map(s => s.id || s.email || s.name) : [];
+  const nonGiverCount = Math.max(0, allSeniorIds.length - evalGivers);
+
+  // Top 5 leaderboard
+  const top5 = records.slice(0, 5);
+  const max = top5[0].total;
+
+  // Build leaderboard cards
+  const leaderboardHtml = top5.map((r, idx) => {
+    const rankIcon = ['🥇','🥈','🥉','4.','5.'][idx] || (idx+1) + '.';
+    const pct = max > 0 ? (r.total / max) * 100 : 0;
+    const roleLabel = r.role === 'chief' ? 'צ\'יף' : 'בכיר';
+    const cleanName = (r.name || '?').replace(/^ד"ר\s+/, '');
+    return `
+      <div class="flex items-center gap-3 py-1.5">
+        <div class="text-base shrink-0 w-7 text-center">${rankIcon}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-gray-800 truncate">${escapeHtml(cleanName)}</span>
+            <span class="text-[10px] text-gray-400">${roleLabel}</span>
+            <span class="text-xs text-gray-500 mr-auto">${r.total} משובים · ${r.residentCount} מתמחים</span>
+          </div>
+          <div class="h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
+            <div class="h-full bg-gradient-to-l from-emerald-400 to-emerald-600 rounded-full" style="width:${pct.toFixed(0)}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Bottom contributors (last 3, or non-givers) for balance awareness
+  const tailRecords = records.slice(-3).reverse();
+  const tailHtml = tailRecords.length > 0 ? tailRecords.map(r => {
+    const cleanName = (r.name || '?').replace(/^ד"ר\s+/, '');
+    return `<span class="text-xs px-2 py-0.5 bg-amber-50 text-amber-800 rounded-full whitespace-nowrap">${escapeHtml(cleanName)}: ${r.total}</span>`;
+  }).join(' ') : '<span class="text-xs text-gray-400">—</span>';
+
+  el.innerHTML = `
+    <div class="bg-white rounded-xl border-2 border-emerald-200 p-4">
+      <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div class="flex items-center gap-2">
+          <span class="text-base">📊</span>
+          <span class="text-sm font-semibold text-gray-900">מצטיינים במשובים · עומס לפי בכיר</span>
+          <span class="text-[10px] text-gray-400">(30 ימים אחרונים)</span>
+        </div>
+        <div class="flex items-center gap-3 text-[11px] text-gray-500">
+          <span><strong class="text-gray-800">${grand}</strong> משובים סה"כ</span>
+          <span>·</span>
+          <span><strong class="text-emerald-600">${evalGivers}</strong> בכירים נתנו</span>
+          ${nonGiverCount > 0 ? `<span>·</span><span><strong class="text-amber-600">${nonGiverCount}</strong> לא נתנו</span>` : ''}
+        </div>
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-3">
+        <div class="text-xs font-medium text-emerald-900 mb-1.5">🏆 5 מצטיינים</div>
+        ${leaderboardHtml}
+      </div>
+
+      <!-- Workload tail / balance hint -->
+      <div class="border-t border-gray-100 pt-2.5">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="text-xs text-gray-600">
+            <strong>איזון:</strong> נחות בעומס משוב — שווה לבדוק אם זה תפקיד או היענות
+          </div>
+          <div class="flex flex-wrap gap-1.5">${tailHtml}</div>
+        </div>
+        <div class="text-[10px] text-gray-400 mt-2 leading-relaxed">
+          💡 מצטיינים בולטים = ייתכן שמקבלים נטל לא מאוזן. בכירים בתחתית = יעד לשיחה אישית או הקצאה מחדש.
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderPdDashboard() {
   document.getElementById('kpi-total').textContent = RESIDENTS.length;
   document.getElementById('resident-count-sub').textContent = `${RESIDENTS.length} מתמחים פעילים`;
@@ -4379,6 +4515,9 @@ function renderPdDashboard() {
 
   // v2.10.22: render submission matrix (only shows when an active cycle exists)
   try { _renderSubmissionMatrix(); } catch (e) { console.warn('matrix render error', e); }
+
+  // v2.10.31: attending stats — leaderboard + workload balance
+  try { _renderPdAttendingStats(); } catch (e) { console.warn('attending stats render error', e); }
 
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
@@ -4984,12 +5123,100 @@ function _saveResidentPadFromUI() {
   setTimeout(() => { if (status) status.textContent = ''; }, 2000);
 }
 
+// v2.10.31: Notification banner for residents — shows count of NEW evals received since last dashboard visit.
+// Storage: localStorage['cbme_resident_lastseen_${residentId}'] = ISO timestamp of last seen evals.
+function _renderResidentNotifications(residentId) {
+  const banner = document.getElementById('resident-notifications-banner');
+  if (!banner || !residentId) return;
+  const key = `cbme_resident_lastseen_${residentId}`;
+  const lastSeen = localStorage.getItem(key);
+  const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
+
+  // Gather all evals where THIS resident is the subject and they're FINAL (not draft, not self)
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+  const all = [..._getLocalHistory(), ...seed];
+  const myEvals = all.filter(h => {
+    if (h.residentId !== residentId && h.residentName !== CURRENT_RESIDENT?.name) return false;
+    if (h.evaluatorRole === 'resident' && h.selfAssessment) return false;  // exclude self
+    if (h.subType === 'draft') return false;
+    return h.type === 'micro' || h.type === 'macro';
+  });
+
+  // Split into new (since last seen) and recent (last 14 days for context)
+  const newOnes = myEvals.filter(h => {
+    const ts = new Date(h.timestamp || h.date || 0).getTime();
+    return ts > lastSeenMs;
+  });
+  const newMicros = newOnes.filter(h => h.type === 'micro');
+  const newMacros = newOnes.filter(h => h.type === 'macro');
+
+  if (newOnes.length === 0) {
+    // No new evals — render compact "all caught up" or nothing
+    const totalReceived = myEvals.length;
+    if (totalReceived === 0) {
+      banner.innerHTML = '';
+    } else {
+      banner.innerHTML = `
+        <div class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-3 text-xs text-gray-500 flex items-center gap-2">
+          <span>✓</span><span>אין משובים חדשים. סה"כ קיבלת ${totalReceived} משובים/הערכות.</span>
+        </div>`;
+    }
+    return;
+  }
+
+  // Build pretty banner with counts + list of NEW evals
+  const previewList = newOnes
+    .slice()
+    .sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0))
+    .slice(0, 5)
+    .map(h => {
+      const evaluatorName = (h.evaluatorName || '').replace(/^ד"ר\s*/, '') || 'בכיר';
+      const cat = h.categoryLabel || h.category || (h.type === 'macro' ? 'הערכה תקופתית' : '—');
+      const dateStr = _fmtDateIL(h.timestamp || h.date);
+      const typeIcon = h.type === 'macro' ? '◐' : '⚡';
+      return `<div class="flex items-center gap-2 py-1 text-xs"><span class="text-blue-600">${typeIcon}</span><span class="flex-1 truncate"><strong>${escapeHtml(evaluatorName)}</strong> · ${escapeHtml(cat)}</span><span class="text-gray-400">${dateStr}</span></div>`;
+    }).join('');
+
+  const moreCount = newOnes.length - 5;
+  banner.innerHTML = `
+    <div class="bg-blue-50 border-2 border-blue-300 rounded-xl p-3 mb-4 shadow-sm">
+      <div class="flex items-start gap-3">
+        <div class="text-2xl shrink-0">🔔</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-blue-900 mb-1">
+            יש לך ${newOnes.length} ${newOnes.length === 1 ? 'משוב חדש' : 'משובים/הערכות חדשים'}
+            ${newMicros.length > 0 ? `<span class="text-xs font-normal text-blue-700">· ${newMicros.length} משוב${newMicros.length === 1 ? '' : 'ים'} מהיר${newMicros.length === 1 ? '' : 'ים'}</span>` : ''}
+            ${newMacros.length > 0 ? `<span class="text-xs font-normal text-blue-700">· ${newMacros.length} הערכ${newMacros.length === 1 ? 'ה תקופתית' : 'ות תקופתיות'}</span>` : ''}
+          </div>
+          <div class="space-y-0.5">${previewList}</div>
+          ${moreCount > 0 ? `<div class="text-xs text-blue-600 mt-1">+ עוד ${moreCount} ${moreCount === 1 ? 'משוב' : 'משובים'}</div>` : ''}
+          <div class="flex gap-2 mt-3">
+            <button onclick="navigateTo('resident-portfolio')" class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">פתח את התיק שלי ←</button>
+            <button onclick="_markResidentEvalsRead('${escapeAttr(residentId)}')" class="text-xs bg-white border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50">סמן כנקרא</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _markResidentEvalsRead(residentId) {
+  if (!residentId) return;
+  try {
+    safeSetItem(`cbme_resident_lastseen_${residentId}`, new Date().toISOString());
+    showToast('✓ סומן כנקרא', 'success');
+    _renderResidentNotifications(residentId);
+  } catch (e) { console.warn('mark read failed', e); }
+}
+
 function renderResidentDashboard() {
   const r = CURRENT_RESIDENT;
   const data = residentRadarData(r);
 
   document.getElementById('resident-header-info').textContent = `${r.name} · שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳ · Q2 2026`;
   document.getElementById('r-score').textContent = r.score != null ? r.score.toFixed(1) : '—';
+
+  // v2.10.31: notifications banner — new feedback the resident hasn't seen yet
+  try { _renderResidentNotifications(r.id); } catch (e) { console.warn('Notifications render failed:', e); }
 
   // v2.9.15: actionable section — points to improve + goals from latest pd_approved + personal pad
   try { _renderResidentActionable(r); } catch (e) { console.warn('Actionable render failed:', e); }
