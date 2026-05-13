@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.29-dev';
+const APP_VERSION = '2.10.30-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.29: (a) Rename 'בקשות משובים והערכותי' → 'בקשות למשובים' בתפריט בכיר וצ'יף. (b) Bugfix: id `micro-recent-panel` היה כפול בין מסך bכיר וצ'יף — getElementById החזיר רק את הראשון, כך שפאנל 'פעילות אחרונה' לא הופיע בצ'יף. נקרה עם role suffix.";
+const APP_VERSION_NOTES = "v2.10.30: (a) Meeting Report — UI חדש בpd-reports (בחר/י מתמחה → פתח דוח). (b) הדוח עכשיו רנדר HTML מעוצב במקום markdown מונואספייס: תarטיק טבלאות, headings צבעוניים, blockquotes. (c) הגדרות תכולה — 6 toggles (פעולות/מבחנים/מאקרו/מיקרו/פד אישי/נקודות מומלצות). (d) חזרת hr עם הודעה אם הדוח מבוסס על תקופה fallback. (e) Self-micro id collision fix — _selfMicroEl(id) מסקופ למסך הנכון (chief לא ראה את העבר שלו).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2123,6 +2123,63 @@ const DEMO_SEED_EVALUATIONS = [
   },
 ];
 
+// v2.10.30: SANDBOX ONLY — add נועה פרישמן macros for testing meeting report end-to-end.
+// GUARDED by DEV_BYPASS_AUTH — after go-live this block adds NOTHING.
+// Purpose: give PD a second resident to test the "ready-for-meeting" inbox + report flow.
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+  DEMO_SEED_EVALUATIONS.push(
+    { type: 'macro', timestamp: '2026-04-15T10:00:00Z',
+      evaluatorEmail: 'r_iluz@rambam.health.gov.il', evaluatorName: 'ד"ר רועי אילוז', evaluatorRole: 'attending',
+      residentName: 'נועה פרישמן', quarterId: '2026-Q1', subType: 'final',
+      competencies: {
+        pc:   { score: 3.5, comment: 'טיפול קליני מקצועי. נועה גילתה עצמאות בשגרה ושיקול דעת טוב בדחופים.' },
+        mk:   { score: 3.3, comment: 'ידע תיאורטי טוב. כדאי להעמיק בנושאי אונקולוגיה גינקולוגית.' },
+        prof: { score: 4.2, comment: 'הגעה דייקנית, אחריות מצוינת. נקודת חוזק ברורה.' },
+        ics:  { score: 3.8, comment: 'תקשורת בהירה עם מטופלות ומשפחות. עם הצוות הסיעודי - בסדר.' },
+        pbli: { score: 3.5, comment: 'מקבלת פידבק היטב ומיישמת. מצטיינת בלמידה ממקרים.' },
+        sbp:  { score: 3.0, comment: 'מודעות לוגיסטית נכונה. תיאום בין-מחלקתי - יש מה לחזק.' },
+      },
+    },
+    { type: 'macro', timestamp: '2026-04-14T16:30:00Z',
+      evaluatorEmail: 'y_ginsberg@rambam.health.gov.il', evaluatorName: 'ד"ר יובל גינסברג', evaluatorRole: 'attending',
+      residentName: 'נועה פרישמן', quarterId: '2026-Q1', subType: 'final',
+      competencies: {
+        pc:   { score: 3.4, comment: 'בחדר לידה - עצמאית בלידות רגילות. בדחופים זקוקה להכוונה ספציפית.' },
+        mk:   { score: 3.6, comment: 'הכנה למבחנים מצוינת. ידע אקדמי שמתורגם לקליני.' },
+        prof: { score: 4.0, comment: 'דייקנות מקצועית. אמינה ויסודית.' },
+        ics:  { score: 3.7, comment: 'תקשורת טובה גם בהקשרים רגישים (לדוגמה: הודעה על גילוי IUD).' },
+        pbli: { score: 3.6, comment: 'מציגה התקדמות יציבה לעומת הרבעון הקודם.' },
+        sbp:  { score: 3.2, comment: 'מתחילה להבין את זרימת המחלקה ולעבוד מולה.' },
+      },
+    },
+    { type: 'macro', timestamp: '2026-04-13T11:15:00Z',
+      evaluatorEmail: 'r_avrahami@rambam.health.gov.il', evaluatorName: 'ד"ר רוני אברהמי', evaluatorRole: 'attending',
+      residentName: 'נועה פרישמן', quarterId: '2026-Q1', subType: 'final',
+      competencies: {
+        pc:   { score: 3.6, comment: 'בחדר ניתוח - שיקול דעת קליני מתפתח. עצמאות בעיקר בקיסריים פשוטים.' },
+        mk:   { score: 3.4, comment: 'ידע סולידי. אבחנה מבדלת מסודרת.' },
+        prof: { score: 4.1, comment: 'מקצועיות גבוהה. שמירת גבולות וכיבוד מטופלות.' },
+        ics:  { score: 3.5, comment: 'עם המטופלות מצוינת. עם הצוות הסיעודי - לחזק קצת הקשבה.' },
+        pbli: { score: 3.4, comment: 'מקבלת ביקורת בבגרות. כדאי לעודד reflection פעיל יותר.' },
+        sbp:  { score: 3.1, comment: 'מודעות לעלויות וזמני המתנה - מתפתחת.' },
+      },
+    },
+    // Self-eval by נועה (slightly more conservative than mentors — interesting pattern for PD discussion)
+    { type: 'macro', timestamp: '2026-04-16T19:00:00Z',
+      evaluatorEmail: 'n_frishmanmartsiano@rambam.health.gov.il', evaluatorName: 'ד"ר נועה פרישמן', evaluatorRole: 'resident',
+      residentName: 'נועה פרישמן', quarterId: '2026-Q1', subType: 'final',
+      competencies: {
+        pc:   { score: 3.2, comment: 'אני מרגישה שאני מתקדמת אבל עוד צריכה ביטחון בדחופים.' },
+        mk:   { score: 3.2, comment: 'הידע התיאורטי שלי טוב, אבל לפעמים קשה לי לקרוא במהירות תחת לחץ.' },
+        prof: { score: 3.8, comment: 'אני מקפידה על דייקנות ואחריות.' },
+        ics:  { score: 3.4, comment: 'אני חושבת שיש לי תקשורת טובה עם מטופלות. עם הצוות - לפעמים יש איתי קצת מתח.' },
+        pbli: { score: 3.6, comment: 'אני אוהבת לקבל פידבק וליישם. ביקורת עצמית - יש לי גוון של בקרה יתר.' },
+        sbp:  { score: 2.8, comment: 'הצד המערכתי - עוד צריכה ללמוד הרבה.' },
+      },
+    },
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // SEED DATA SAFETY LAYER
 // ═══════════════════════════════════════════════════════════════════
@@ -2136,6 +2193,11 @@ const DEMO_USERS_WHITELIST = new Set([
   'רן דוגמן',           // resident name (Hebrew)
   'dr.iluz.roee@gmail.com', // demo gmail address
 ]);
+
+// v2.10.30: in sandbox mode only, also whitelist נועה for testing meeting report
+if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+  DEMO_USERS_WHITELIST.add('נועה פרישמן');
+}
 
 function isDemoResident(residentName) {
   if (!residentName) return false;
@@ -2772,9 +2834,20 @@ function getResidentExams(residentName) {
 }
 
 // v2.10.25: Meeting Report — Markdown renderer.
+// v2.10.30: accepts options for section filtering (see _configureMeetingReport / pd-reports UI)
 // Input: dossier from _collectResidentDossier(). Output: structured markdown.
-function _renderMeetingReportMd(d) {
+function _renderMeetingReportMd(d, options) {
   if (!d) return '# שגיאה\n\nלא נמצאו נתונים על המתמחה.';
+  // Default: all sections on
+  const opts = Object.assign({
+    procedures: true,
+    exams: true,
+    macro: true,
+    micros: true,
+    personalPad: true,
+    talkingPoints: true,
+    includePrivateNotes: false,
+  }, options || {});
   const lines = [];
   const r = d.resident;
   const pgyName = ['א', 'ב', 'ג', 'ד', 'ה', 'ו'][r.pgy - 1] || r.pgy;
@@ -2805,6 +2878,7 @@ function _renderMeetingReportMd(d) {
   lines.push('');
 
   // Section 1: Procedures
+  if (opts.procedures) {
   lines.push('## 1. פעולות מתמחים — אל מול יעדים');
   lines.push('');
   if (d.procedures.rows.length === 0) {
@@ -2824,8 +2898,10 @@ function _renderMeetingReportMd(d) {
     }
   }
   lines.push('');
+  } // /procedures
 
   // Section 2: Exams
+  if (opts.exams) {
   lines.push('## 2. ציוני בחינות מחלקתיות');
   lines.push('');
   if (d.exams.history.length === 0) {
@@ -2844,8 +2920,10 @@ function _renderMeetingReportMd(d) {
     }
   }
   lines.push('');
+  } // /exams
 
   // Section 3: Macro evaluation
+  if (opts.macro) {
   lines.push('## 3. הערכה תקופתית — תקופה נוכחית');
   lines.push('');
   if (!d.macro.self && d.macro.attendings.length === 0) {
@@ -2901,8 +2979,10 @@ function _renderMeetingReportMd(d) {
     }
   }
   lines.push('');
+  } // /macro
 
   // Section 4: Micro feedback summary
+  if (opts.micros) {
   lines.push('## 4. סיכום משובים מהירים בתקופה');
   lines.push('');
   if (d.micros.inPeriod === 0) {
@@ -2921,9 +3001,10 @@ function _renderMeetingReportMd(d) {
     lines.push('');
   }
   lines.push('');
+  } // /micros
 
   // Section 5: Personal pad (if filled)
-  if (d.personalPad && d.personalPad.trim()) {
+  if (opts.personalPad && d.personalPad && d.personalPad.trim()) {
     lines.push('## 5. מטרות אישיות (פד אישי של המתמחה)');
     lines.push('');
     lines.push('> ' + d.personalPad.replace(/\n/g, '\n> '));
@@ -2931,6 +3012,7 @@ function _renderMeetingReportMd(d) {
   }
 
   // Section 6: Talking points for the meeting
+  if (opts.talkingPoints) {
   lines.push('## 6. נקודות מומלצות לפגישה');
   lines.push('');
   if (d.insights.topStrengths.length) {
@@ -2958,22 +3040,161 @@ function _renderMeetingReportMd(d) {
   }
 
   lines.push('');
+  } // /talkingPoints
+
   lines.push('---');
   lines.push(`*דוח נוצר אוטומטית · ${new Date().toLocaleDateString('he-IL')} · CBME רמב"ם · v${typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}*`);
 
   return lines.join('\n');
 }
 
+// v2.10.30: in-modal section config — quick toggles re-render the report with chosen sections
+function _configureMeetingReport(residentId) {
+  const opts = window._lastMeetingReportOptions || {};
+  const modal = document.createElement('div');
+  modal.id = 'meeting-config-modal';
+  modal.className = 'fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  const sections = [
+    { key: 'procedures',    label: '1. פעולות מול יעדים' },
+    { key: 'exams',         label: '2. ציוני מבחנים' },
+    { key: 'macro',         label: '3. הערכה תקופתית (קומפטנציות + הערות)' },
+    { key: 'micros',        label: '4. סיכום משובים מהירים' },
+    { key: 'personalPad',   label: '5. פד אישי של המתמחה' },
+    { key: 'talkingPoints', label: '6. נקודות מומלצות לפגישה' },
+  ];
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl max-w-md w-full p-5">
+      <h3 class="text-base font-semibold mb-1">⚙ תכולת הדוח</h3>
+      <p class="text-xs text-gray-500 mb-3">בחר/י אילו סקציות לכלול בדוח</p>
+      <div class="space-y-2 mb-4">
+        ${sections.map(s => `
+          <label class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-purple-50">
+            <input type="checkbox" id="mr-opt-${s.key}" ${opts[s.key] !== false ? 'checked' : ''} class="accent-purple-600">
+            <span class="text-sm text-gray-800">${s.label}</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="flex gap-2">
+        <button onclick="document.getElementById('meeting-config-modal').remove()" class="flex-1 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">ביטול</button>
+        <button onclick="_applyMeetingReportConfig('${escapeAttr(residentId)}')" class="flex-1 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700">החל ועדכן דוח</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function _applyMeetingReportConfig(residentId) {
+  const opts = {};
+  ['procedures','exams','macro','micros','personalPad','talkingPoints'].forEach(k => {
+    const cb = document.getElementById(`mr-opt-${k}`);
+    if (cb) opts[k] = cb.checked;
+  });
+  document.getElementById('meeting-config-modal')?.remove();
+  document.getElementById('meeting-report-modal')?.remove();
+  _openMeetingReportModal(residentId, opts);
+}
+
+// v2.10.30: launch meeting report from pd-reports screen selector
+function _launchMeetingReportFromSelect() {
+  const sel = document.getElementById('meeting-resident-select');
+  if (!sel || !sel.value) {
+    showToast('בחר/י מתמחה תחילה', 'info');
+    return;
+  }
+  _openMeetingReportModal(sel.value);
+}
+
 // v2.10.25: open modal with the generated meeting report
-function _openMeetingReportModal(residentId) {
+// v2.10.30: convert meeting-report markdown → styled HTML for in-app display + print
+// Handles: H1/H2/H3, bold, italic, blockquotes, lists, tables (markdown pipe syntax), hr.
+function _meetingReportMdToHtml(md) {
+  if (!md) return '';
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+  // Inline conversions applied to a single line of text
+  const inlineFmt = (s) => s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded text-[11px]">$1</code>');
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.trimEnd();
+
+    // Table detection: header line | --- | --- separator on next line
+    if (line.startsWith('|') && i + 1 < lines.length && /^\|[\s\-:|]+\|$/.test(lines[i+1].trim())) {
+      closeList();
+      const headerCells = line.split('|').slice(1, -1).map(s => s.trim());
+      const aligns = lines[i+1].split('|').slice(1, -1).map(s => {
+        const t = s.trim();
+        if (t.startsWith(':') && t.endsWith(':')) return 'center';
+        if (t.endsWith(':')) return 'left';
+        if (t.startsWith(':')) return 'right';
+        return 'right'; // default RTL
+      });
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(lines[i].split('|').slice(1, -1).map(s => s.trim()));
+        i++;
+      }
+      out.push('<div class="my-3 overflow-x-auto"><table class="w-full text-sm border-collapse">');
+      out.push('<thead><tr class="bg-purple-50">' + headerCells.map((h, idx) =>
+        `<th class="border border-gray-200 px-2 py-1.5 text-${aligns[idx] || 'right'} font-medium text-purple-900">${inlineFmt(h)}</th>`
+      ).join('') + '</tr></thead>');
+      out.push('<tbody>' + rows.map(r =>
+        '<tr class="hover:bg-gray-50">' + r.map((cell, idx) =>
+          `<td class="border border-gray-200 px-2 py-1 text-${aligns[idx] || 'right'}">${inlineFmt(cell)}</td>`
+        ).join('') + '</tr>'
+      ).join('') + '</tbody>');
+      out.push('</table></div>');
+      continue;
+    }
+
+    if (/^---+$/.test(line)) { closeList(); out.push('<hr class="my-4 border-gray-200">'); i++; continue; }
+    if (/^# /.test(line))    { closeList(); out.push(`<h1 class="text-lg font-semibold text-purple-900 border-b-2 border-purple-200 pb-2 mb-3">${inlineFmt(line.slice(2))}</h1>`); i++; continue; }
+    if (/^## /.test(line))   { closeList(); out.push(`<h2 class="text-base font-semibold text-purple-800 mt-5 mb-2 flex items-center gap-2">${inlineFmt(line.slice(3))}</h2>`); i++; continue; }
+    if (/^### /.test(line))  { closeList(); out.push(`<h3 class="text-sm font-semibold text-gray-800 mt-3 mb-1.5">${inlineFmt(line.slice(4))}</h3>`); i++; continue; }
+    if (/^> /.test(line))    { closeList(); out.push(`<blockquote class="border-r-4 border-purple-300 pr-3 my-2 text-gray-600 italic">${inlineFmt(line.slice(2))}</blockquote>`); i++; continue; }
+    if (/^- /.test(line)) {
+      if (!inList) { out.push('<ul class="list-disc pr-5 my-2 space-y-1">'); inList = true; }
+      out.push(`<li class="text-sm text-gray-700">${inlineFmt(line.slice(2))}</li>`);
+      i++; continue;
+    }
+    if (line === '') { closeList(); out.push(''); i++; continue; }
+
+    // Regular paragraph
+    closeList();
+    out.push(`<p class="text-sm text-gray-700 leading-relaxed mb-2">${inlineFmt(line)}</p>`);
+    i++;
+  }
+  closeList();
+  return out.filter(l => l !== '').join('\n');
+}
+
+function _openMeetingReportModal(residentId, options) {
+  options = options || {};
   const dossier = _collectResidentDossier(residentId);
   if (!dossier) { showToast('שגיאה: לא נמצא מתמחה', 'error'); return; }
-  const md = _renderMeetingReportMd(dossier);
+  // v2.10.30: pass options to renderer (section filtering controlled by reports UI)
+  const md = _renderMeetingReportMd(dossier, options);
+  const html = _meetingReportMdToHtml(md);
 
   const modal = document.createElement('div');
   modal.id = 'meeting-report-modal';
   modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  // v2.10.30: show effective cycle warning if different from active
+  const cycleNote = (dossier.cycle.isFallback && dossier.cycle.requestedId)
+    ? `<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 text-xs text-amber-900">ⓘ בתקופה הפעילה (${escapeHtml(dossier.cycle.requestedId)}) אין הערכות. הדוח מבוסס על התקופה האחרונה עם נתונים: <strong>${escapeHtml(dossier.cycle.id || '?')}</strong>.</div>`
+    : '';
+
   modal.innerHTML = `
     <div class="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between p-4 border-b border-gray-200">
@@ -2987,15 +3208,18 @@ function _openMeetingReportModal(residentId) {
         <button onclick="_copyMeetingReportToClipboard()" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">📋 העתק (Markdown)</button>
         <button onclick="_downloadMeetingReportMd('${escapeAttr(dossier.resident.name)}')" class="text-xs px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">⬇ הורד .md</button>
         <button onclick="_printMeetingReport()" class="text-xs px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">🖨 הדפס / PDF</button>
+        <button onclick="_configureMeetingReport('${escapeAttr(residentId)}')" class="text-xs px-3 py-1.5 bg-white border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-50">⚙ הגדרות תכולה</button>
         <div class="text-[10px] text-gray-400 mr-auto">העתק → Word/Drive · הדפס → PDF דרך הדפדפן</div>
       </div>
-      <div id="meeting-report-content" class="flex-1 overflow-y-auto p-5 text-sm leading-relaxed" style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, monospace; direction: rtl;">${escapeHtml(md)}</div>
+      <div id="meeting-report-content" class="flex-1 overflow-y-auto p-5" style="direction: rtl;">${cycleNote}${html}</div>
     </div>
   `;
   document.body.appendChild(modal);
   // Stash markdown for copy/download actions
   window._lastMeetingReportMd = md;
   window._lastMeetingReportName = dossier.resident.name;
+  window._lastMeetingReportResidentId = residentId;
+  window._lastMeetingReportOptions = options;
 }
 
 function _copyMeetingReportToClipboard() {
@@ -3026,28 +3250,29 @@ function _downloadMeetingReportMd(name) {
 function _printMeetingReport() {
   const md = window._lastMeetingReportMd;
   if (!md) return;
-  // Build a print-friendly HTML
-  const html = md
-    .replace(/^# (.*)$/gm, '<h1 style="font-size:18pt; border-bottom:2px solid #6b21a8; padding-bottom:4px;">$1</h1>')
-    .replace(/^## (.*)$/gm, '<h2 style="font-size:14pt; color:#6b21a8; margin-top:18pt;">$1</h2>')
-    .replace(/^### (.*)$/gm, '<h3 style="font-size:12pt; margin-top:12pt;">$1</h3>')
-    .replace(/^\*\*(.*?)\*\*: (.*)$/gm, '<p><strong>$1</strong>: $2</p>')
-    .replace(/^\*\*(.*?)\*\*$/gm, '<p><strong>$1</strong></p>')
-    .replace(/^- (.*)$/gm, '<li>$1</li>')
-    .replace(/^> (.*)$/gm, '<blockquote style="border-right:3px solid #ddd; padding:4px 12px; margin:8px 0; color:#555;">$1</blockquote>')
-    .replace(/^---$/gm, '<hr>')
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // v2.10.30: reuse the same HTML converter as the in-modal view (tables included)
+  const html = _meetingReportMdToHtml(md);
   const w = window.open('', '_blank');
   w.document.write(`
     <!DOCTYPE html><html lang="he" dir="rtl"><head>
     <meta charset="UTF-8"><title>${window._lastMeetingReportName} - דוח פגישת סיכום</title>
     <style>
-      body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; line-height: 1.6; color: #1f2937; direction: rtl; }
-      table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-      th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: right; font-size: 11pt; }
-      th { background: #f3f4f6; }
-      @media print { body { margin: 0; padding: 15mm; } @page { size: A4; margin: 0; } }
+      body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; line-height: 1.65; color: #1f2937; direction: rtl; }
+      h1 { font-size: 18pt; color: #6b21a8; border-bottom: 2px solid #ddd6fe; padding-bottom: 6px; margin-bottom: 12px; }
+      h2 { font-size: 13pt; color: #5b21b6; margin-top: 20px; margin-bottom: 8px; }
+      h3 { font-size: 11pt; color: #1f2937; margin-top: 14px; margin-bottom: 6px; }
+      p  { margin: 6px 0; font-size: 11pt; }
+      ul { padding-right: 22px; margin: 6px 0; }
+      li { font-size: 11pt; margin-bottom: 3px; }
+      blockquote { border-right: 3px solid #c4b5fd; padding: 4px 10px; margin: 8px 0; color: #4b5563; background: #faf5ff; font-style: italic; }
+      hr { border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0; }
+      strong { color: #1f2937; }
+      table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+      th, td { border: 1px solid #e5e7eb; padding: 5px 8px; text-align: right; font-size: 10.5pt; }
+      th { background: #f5f3ff; color: #5b21b6; font-weight: 600; }
+      tr:hover { background: #fafafa; }
+      code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 90%; }
+      @media print { body { margin: 0; padding: 15mm; } @page { size: A4; margin: 0; } table { page-break-inside: avoid; } h2, h3 { page-break-after: avoid; } }
     </style></head><body>${html}</body></html>
   `);
   w.document.close();
@@ -6093,6 +6318,14 @@ function _portfolioSelectResident(residentId) {
 let selfSelectedEvent = null;
 let selfSelectedSubproc = null;
 
+// v2.10.30: scope self-micro id lookups to current role's screen
+// (resident and chief screens both use the same ids — getElementById returned the first match)
+function _selfMicroEl(id) {
+  const screenId = (currentRole === 'chief') ? 'screen-chief-self-micro' : 'screen-resident-self-micro';
+  const screen = document.getElementById(screenId);
+  return screen ? screen.querySelector('#' + id) : document.getElementById(id);
+}
+
 function renderSelfMicroForm(role) {
   role = role || 'resident';
   const isChief = role === 'chief';
@@ -6168,9 +6401,9 @@ function renderSelfMicroForm(role) {
   selfSelectedEvent = null;
   selfSelectedSubproc = null;
   document.querySelectorAll('.self-event-btn').forEach(b => b.classList.remove('border-blue-500', 'bg-blue-50'));
-  const sec = document.getElementById('self-micro-section');
+  const sec = _selfMicroEl('self-micro-section');
   if (sec) sec.classList.add('hidden');
-  const subSec = document.getElementById('self-subproc-section');
+  const subSec = _selfMicroEl('self-subproc-section');
   if (subSec) subSec.classList.add('hidden');
 
   // Load self-micro entries from localStorage history + DEMO_SEED_EVALUATIONS
@@ -6187,7 +6420,7 @@ function renderSelfMicroForm(role) {
     const parts = (h.visibleFeedback || h.reflection || '').split('---');
     return { event: h.categoryLabel || h.category || '—', sub: '', date: dateStr, score: avgScore, good: parts[0]?.trim() || '—', improve: parts[1]?.trim() || '' };
   });
-  const histEl = document.getElementById('self-micro-history');
+  const histEl = _selfMicroEl('self-micro-history');
   if (histEl) histEl.innerHTML = recent.length === 0
     ? '<div class="text-xs text-gray-400 py-3">אין רישומים עדיין. רישום משוב עצמי הראשון שלך יופיע כאן.</div>'
     : recent.map(r => `
@@ -6237,21 +6470,21 @@ function selectSelfEvent(btn) {
   selfSelectedSubproc = null;
 
   const event = EVENT_LIBRARY[selfSelectedEvent];
-  document.getElementById('self-micro-section').classList.remove('hidden');
+  _selfMicroEl('self-micro-section').classList.remove('hidden');
 
   if (event.subprocs) {
-    const sub = document.getElementById('self-subproc-section');
+    const sub = _selfMicroEl('self-subproc-section');
     sub.classList.remove('hidden');
-    document.getElementById('self-subproc-buttons').innerHTML = event.subprocs.map(sp => `
+    _selfMicroEl('self-subproc-buttons').innerHTML = event.subprocs.map(sp => `
       <button onclick="selectSelfSubproc('${sp.id}')" data-subproc="${sp.id}" class="self-subproc-btn text-xs px-3 py-1.5 rounded-full border border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50 transition-colors">${sp.label}</button>
     `).join('');
-    document.getElementById('self-epa-items').innerHTML = '<div class="text-xs text-gray-400 text-center py-3">בחר סוג פעולה למעלה</div>';
+    _selfMicroEl('self-epa-items').innerHTML = '<div class="text-xs text-gray-400 text-center py-3">בחר סוג פעולה למעלה</div>';
   } else {
-    document.getElementById('self-subproc-section').classList.add('hidden');
+    _selfMicroEl('self-subproc-section').classList.add('hidden');
     renderSelfEpaItems(event.epas);
   }
 
-  setTimeout(() => document.getElementById('self-micro-section').scrollIntoView({behavior: 'smooth', block: 'nearest'}), 100);
+  setTimeout(() => _selfMicroEl('self-micro-section').scrollIntoView({behavior: 'smooth', block: 'nearest'}), 100);
 }
 
 function selectSelfSubproc(spId) {
@@ -6270,7 +6503,7 @@ function selectSelfSubproc(spId) {
 }
 
 function renderSelfEpaItems(epas) {
-  document.getElementById('self-epa-items').innerHTML = epas.map(e => `
+  _selfMicroEl('self-epa-items').innerHTML = epas.map(e => `
     <div>
       <div class="text-xs text-gray-700 mb-1.5">${e.label}</div>
       <div class="grid grid-cols-5 gap-1.5">
@@ -6304,7 +6537,7 @@ async function submitSelfMicro() {
   // Gather EPA scores from selected likert buttons
   const epaScores = {};
   let scoredCount = 0;
-  const section = document.getElementById('self-micro-section');
+  const section = _selfMicroEl('self-micro-section');
   if (section) {
     section.querySelectorAll('.likert-btn.selected').forEach(btn => {
       const container = btn.parentElement;
@@ -9814,6 +10047,24 @@ function renderReportsScreen() {
         <div class="flex flex-wrap gap-2 pr-9">
           <button onclick="_openCustomReportWizard()" class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700">פתח Builder ←</button>
           <span class="text-[11px] text-purple-700 self-center">מהיר · גמיש · יוצר HTML / Markdown / Excel-CSV</span>
+        </div>
+      </div>
+
+      <!-- v2.10.30: Meeting Report Builder — focused, per-resident, with section toggles -->
+      <div class="bg-gradient-to-l from-amber-50 to-purple-50 border-2 border-amber-300 rounded-xl p-4 mb-3">
+        <div class="flex items-start gap-3 mb-3">
+          <div class="text-2xl shrink-0">📋</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-amber-900 mb-1">דוח פגישת סיכום — בחירת מתמחה + תכולה</div>
+            <div class="text-xs text-amber-800 leading-relaxed">בנה דוח אישי לפגישה: בחר/י מתמחה, אילו סקציות לכלול (פעולות, מבחנים, מאקרו, מיקרו, פד אישי, נקודות מומלצות). ניתן להעתיק, להוריד MD, או להדפיס כ-PDF.</div>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 pr-9 items-center">
+          <select id="meeting-resident-select" class="text-sm border border-amber-300 rounded-lg px-3 py-2 bg-white min-w-[200px]">
+            <option value="">— בחר/י מתמחה —</option>
+            ${RESIDENTS.map(r => `<option value="${escapeAttr(r.id)}">${escapeHtml(r.name)} · PGY ${r.pgy}</option>`).join('')}
+          </select>
+          <button onclick="_launchMeetingReportFromSelect()" class="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700">פתח דוח ←</button>
         </div>
       </div>
     ` : ''}
