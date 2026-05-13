@@ -696,9 +696,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.13-dev';
-const APP_VERSION_DATE = '12.5.2026';
-const APP_VERSION_NOTES = "v2.10.13: סידור מחדש של תפריט PD לפי בקשת המשתמש (4 קבוצות עם מפרידים), שינוי שם 'הערכה תקופתית' → 'משוב תקופתי' ל-PD+בכירים.";
+const APP_VERSION = '2.10.14-dev';
+const APP_VERSION_DATE = '13.5.2026';
+const APP_VERSION_NOTES = "v2.10.14 (DREAM): Schema validator על submitEvaluation. כל הערכה עוברת תיקוף לפני שמירה — חוסם שדות חסרים, מתריע על drift. JSDoc types הוספו ל-EvaluationEntry. **בdev בלבד** — לא הועלה ל-prod, ממתין לסקירת בוקר.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -955,7 +955,77 @@ async function submitExamsToDrive(examsData) {
 }
 
 // Submit evaluation to Drive
+/**
+ * @typedef {Object} EvaluationEntry
+ * @property {'micro'|'macro'} type - Eval kind
+ * @property {'draft'|'final'|'pd_approved'|'submitted'} [subType]
+ * @property {string} evaluatorId
+ * @property {'pd'|'attending'|'chief'|'resident'|'coordinator'} [evaluatorRole]
+ * @property {string} [evaluatorName]
+ * @property {string} residentId
+ * @property {string} [residentName]
+ * @property {string} [quarterId] - Required for macro (e.g. '2026-Q2')
+ * @property {string} [category] - For micro: event category
+ * @property {Object<string,number>} [epaScores] - For micro
+ * @property {Object<string,{score: number|null, comment: string}>} [competencies] - For macro
+ * @property {Object<string,number>} [scores] - For macro draft: raw Likert per item
+ * @property {Array<{idx: number, value: string}>} [comments] - For macro draft: raw textareas
+ * @property {string} [visibleFeedback]
+ * @property {string} [privateNote]
+ * @property {boolean} [selfAssessment]
+ */
+
+/**
+ * v2.10.14 — Validates an evaluation entry shape before saving.
+ * Soft validation: returns {ok, errors, warnings}. Hard errors block save; warnings logged only.
+ * This catches the "competencies vs epaScores" type mismatch that produced silent
+ * 'אין פרטים נוספים' in portfolios for self-macro evals.
+ * @param {EvaluationEntry} e
+ * @returns {{ok: boolean, errors?: string[], warnings?: string[]}}
+ */
+function _validateEvaluation(e) {
+  const errors = [];
+  const warnings = [];
+  if (!e || typeof e !== 'object') return { ok: false, errors: ['evaluationData is null or not an object'] };
+
+  if (!e.type) errors.push('missing required field: type');
+  else if (!['micro', 'macro'].includes(e.type)) errors.push(`invalid type: "${e.type}" (expected 'micro' or 'macro')`);
+
+  if (!e.residentId) errors.push('missing required field: residentId');
+  if (!e.evaluatorId) warnings.push('missing evaluatorId (defaulting to "unknown")');
+
+  if (e.type === 'macro') {
+    if (!e.quarterId) errors.push('macro evaluations require quarterId (e.g. "2026-Q2")');
+    if (e.subType && !['draft', 'final', 'pd_approved'].includes(e.subType)) {
+      warnings.push(`macro: unknown subType "${e.subType}" (expected draft/final/pd_approved)`);
+    }
+    if (e.subType === 'final' && !e.competencies && !(Array.isArray(e.comments) && e.comments.length)) {
+      warnings.push('macro/final: empty content (no competencies and no comments) — portfolio will show empty');
+    }
+  }
+
+  if (e.type === 'micro') {
+    if (!e.epaScores || Object.keys(e.epaScores).length === 0) warnings.push('micro: missing or empty epaScores');
+    if (!e.category && !e.categoryLabel) warnings.push('micro: missing category info');
+  }
+
+  return errors.length > 0
+    ? { ok: false, errors, warnings }
+    : { ok: true, warnings };
+}
+
 async function submitEvaluation(evaluationData) {
+  // v2.10.14: schema validator — fail-fast on missing required fields, warn on shape drift
+  const _v = _validateEvaluation(evaluationData);
+  if (!_v.ok) {
+    console.error('[submitEvaluation] VALIDATION FAILED:', _v.errors, 'data:', evaluationData);
+    showToast('שגיאת תיקוף נתונים בהערכה. ראה/י Console.', 'error');
+    return { success: false, ok: false, errors: _v.errors };
+  }
+  if (_v.warnings && _v.warnings.length) {
+    console.warn('[submitEvaluation] validation warnings:', _v.warnings);
+  }
+
   if (!sessionToken) {
     showToast('שגיאה: אין session. התחבר מחדש.', 'error');
     return { success: false };
