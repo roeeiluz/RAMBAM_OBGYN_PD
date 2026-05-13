@@ -649,6 +649,9 @@
     <section id="screen-chief-micro" class="screen"></section>
     <section id="screen-chief-history" class="screen"></section>
     <section id="screen-chief-self-micro" class="screen"></section>
+    <!-- v2.10.32: chief dashboard + portfolio mirror residents -->
+    <section id="screen-chief-dashboard" class="screen"></section>
+    <section id="screen-chief-portfolio" class="screen"></section>
 
     <!-- ===================================================== -->
     <!-- SCREEN: Procedures view (resident/attending/chief)     -->
@@ -703,9 +706,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.31-dev';
+const APP_VERSION = '2.10.32-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.31: שתי תוספות מבוססות ביקורת המועצה — שיפור היענות והוגנות. (a) Resident dashboard notification banner — תצוגה של משובים חדשים שטרם נצפו, עם 'סמן כנקרא' + לינק לפורטפוליו (push-style indication שמפעיל לולאת פידבק). (b) PD dashboard 'מצטיינים במשובים + עומס לבכיר' — leaderboard לטופ 5, רשימת חלשים, ספירת בכירים שלא נתנו 30 יום. כלי איזון.";
+const APP_VERSION_NOTES = "v2.10.32: (a) Portfolio — אריחים לחתך לפי תחום קליני (8 קטגוריות) משולבים עם הפילטר הקיים: לחיצה על 'חדר לידה' מציגה רק את המשובים מחדר לידה. (b) צ'יף — דשבורד אישי חדש 'הדשבורד שלי' + 'תיק המשובים שלי' שמראים את המשובים שלהם כמתמחים בכירים (בוגרי שלב ב'). תפריט צ'יף עודכן בהתאם. _setupChiefAsResident() מקשר את הצ'יף לפרופיל המתמחה שלו ב-RESIDENTS.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3372,14 +3375,16 @@ const NAV_BY_ROLE = {
     { id: 'settings',             label: 'הגדרות',           icon: '⚙' },
   ],
   chief: [
-    { id: 'chief-micro',      label: 'משוב מהיר',     icon: '⚡' },
-    { id: 'senior-requests',  label: 'בקשות למשובים', icon: '✉' },
-    { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
-    // v2.10.24: 'eval-status' removed — embedded in micro/macro screens
-    { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
+    // v2.10.32: chief is also a senior resident — gets their own dashboard mirror
+    { id: 'chief-dashboard',  label: 'הדשבורד שלי',       icon: '▦' },
+    { id: 'chief-portfolio',  label: 'תיק המשובים שלי',   icon: '👤' },
+    { id: 'chief-micro',      label: 'משוב מהיר',          icon: '⚡', divider: true },
+    { id: 'senior-requests',  label: 'בקשות למשובים',     icon: '✉' },
+    { id: 'chief-procedures', label: 'פעולות מתמחים',     icon: '⊞' },
+    { id: 'chief-self-micro', label: 'משוב מהיר עצמי',     icon: '◔', divider: true },
     { id: 'chief-self',       label: 'הערכה תקופתית עצמית', icon: '◐' },
-    { id: 'methodology',      label: 'מתודולוגיה',       icon: '📖', divider: true },
-    { id: 'settings',         label: 'הגדרות',           icon: '⚙' },
+    { id: 'methodology',      label: 'מתודולוגיה',         icon: '📖', divider: true },
+    { id: 'settings',         label: 'הגדרות',             icon: '⚙' },
   ],
   resident: [
     { id: 'resident-dashboard',   label: 'הדשבורד שלי',         icon: '▦' },
@@ -3850,6 +3855,12 @@ function renderScreen() {
   if (currentScreen === 'pd-macro') renderMacroPdScreen();
 
   if (currentScreen === 'resident-dashboard') renderResidentDashboard();
+  // v2.10.32: chief is also a senior resident — render dashboard + portfolio for own data
+  if (currentScreen === 'chief-dashboard') renderChiefDashboard();
+  if (currentScreen === 'chief-portfolio') {
+    _setupChiefAsResident();
+    renderPortfolio('chief');
+  }
   if (currentScreen === 'resident-approved') renderApproved();
   if (currentScreen === 'resident-self') {
     // v2.9.11: 4-tile landing for resident macro eval; subview switches to 'form' or 'archive' on tile click
@@ -5123,6 +5134,201 @@ function _saveResidentPadFromUI() {
   setTimeout(() => { if (status) status.textContent = ''; }, 2000);
 }
 
+// v2.10.32: Resolve the chief's own resident profile and assign to CURRENT_RESIDENT.
+// Chiefs are PGY 4+ residents with chief role — they need to see their OWN feedback too.
+// Matches by stripping 'ד"ר ' prefix from chief's name, then finding in RESIDENTS.
+function _setupChiefAsResident() {
+  if (currentRole !== 'chief' || !currentUser) return;
+  const chiefName = (currentUser.name || '').replace(/^ד"ר\s*/, '').trim();
+  let r = RESIDENTS.find(x => x.name === chiefName);
+  // Fallback by email match against RESIDENT_EMAILS
+  if (!r && currentUser.email && typeof RESIDENT_EMAILS !== 'undefined') {
+    const matchingName = Object.keys(RESIDENT_EMAILS).find(n => RESIDENT_EMAILS[n] === currentUser.email);
+    if (matchingName) r = RESIDENTS.find(x => x.name === matchingName);
+  }
+  if (r) CURRENT_RESIDENT = r;
+}
+
+// v2.10.32: Chief dashboard — same purpose as resident dashboard (own evals, notifications, KPIs)
+// but rendered into screen-chief-dashboard. Reuses _renderResidentNotifications.
+function renderChiefDashboard() {
+  _setupChiefAsResident();
+  const screen = document.getElementById('screen-chief-dashboard');
+  if (!screen) return;
+  const r = CURRENT_RESIDENT;
+
+  // If chief's resident profile not found (e.g., they're a chief but not in RESIDENTS list)
+  if (!r || r.name === '—') {
+    screen.innerHTML = `
+      <div class="mb-5">
+        <h1 class="text-lg font-semibold">הדשבורד שלי</h1>
+        <p class="text-xs text-gray-500 mt-0.5">${escapeHtml(currentUser?.name || 'צ\'יף')}</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+        לא הצלחנו למצוא את פרופיל המתמחה שלך ברשימת המתמחים הפעילים. פני/ה ל-PD להגדרה.
+      </div>`;
+    return;
+  }
+
+  // Aggregate evals received (from others) — same logic as notifications filter
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+  const all = [..._getLocalHistory(), ...seed];
+  const receivedEvals = all.filter(h => {
+    if (h.residentId !== r.id && h.residentName !== r.name) return false;
+    if (h.subType === 'draft') return false;
+    if (h.type !== 'micro' && h.type !== 'macro') return false;
+    if (h.evaluatorRole === 'resident') return false;
+    if (h.selfAssessment) return false;
+    if (h.evaluatorId && h.evaluatorId === r.id) return false;
+    return true;
+  });
+  const microsReceived = receivedEvals.filter(e => e.type === 'micro');
+  const macrosReceived = receivedEvals.filter(e => e.type === 'macro');
+
+  // Average EPA from received micros
+  const scoredMicros = microsReceived.filter(e => e.epaScores);
+  let avgEpa = '—';
+  if (scoredMicros.length > 0) {
+    const scores = scoredMicros.flatMap(e => Object.values(e.epaScores || {}));
+    if (scores.length) avgEpa = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1);
+  }
+
+  // Recent 5 evals
+  const recent = receivedEvals
+    .slice()
+    .sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0))
+    .slice(0, 5);
+
+  const pgyLabel = r.pgy ? ['א','ב','ג','ד','ה','ו'][r.pgy-1] + '׳' : '—';
+  const stage = r.pgy >= 4 ? 'שלב ב\'' : 'שלב א\'';
+
+  screen.innerHTML = `
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div>
+        <h1 class="text-lg font-semibold">הדשבורד שלי</h1>
+        <p class="text-xs text-gray-500 mt-0.5">${escapeHtml(r.name)} · שנה ${pgyLabel} · ${stage} · 👑 מתמחה אחראי/ת</p>
+      </div>
+      <span class="text-xs px-3 py-1 bg-orange-100 text-orange-700 rounded-full">בוגר/ת שלב ב'</span>
+    </div>
+
+    <!-- Notifications banner — populated by _renderResidentNotifications via shared id -->
+    <div id="resident-notifications-banner-chief"></div>
+
+    <!-- KPIs -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div class="bg-blue-50 rounded-lg p-3">
+        <div class="text-xs text-blue-700">משובים מהירים שקיבלתי</div>
+        <div class="text-2xl font-semibold text-blue-900 mt-1">${microsReceived.length}</div>
+      </div>
+      <div class="bg-purple-50 rounded-lg p-3">
+        <div class="text-xs text-purple-700">הערכות תקופתיות</div>
+        <div class="text-2xl font-semibold text-purple-900 mt-1">${macrosReceived.length}</div>
+      </div>
+      <div class="bg-green-50 rounded-lg p-3">
+        <div class="text-xs text-green-700">ממוצע EPA</div>
+        <div class="text-2xl font-semibold text-green-900 mt-1">${avgEpa}</div>
+      </div>
+      <div class="bg-amber-50 rounded-lg p-3">
+        <div class="text-xs text-amber-700">סה"כ שקיבלתי</div>
+        <div class="text-2xl font-semibold text-amber-900 mt-1">${receivedEvals.length}</div>
+      </div>
+    </div>
+
+    <!-- Recent feedback list -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-semibold text-gray-800">📥 משובים אחרונים שקיבלתי</div>
+        ${receivedEvals.length > 5 ? `<button onclick="navigateTo('chief-portfolio')" class="text-xs text-blue-600 hover:underline">צפה בכל ${receivedEvals.length} ←</button>` : ''}
+      </div>
+      ${recent.length === 0 ? `
+        <div class="text-xs text-gray-400 py-3 text-center">עדיין לא קיבלת משובים. כשבכיר ייתן לך משוב — הוא יופיע כאן.</div>
+      ` : recent.map(m => {
+        const evaluatorName = (m.evaluatorName || '').replace(/^ד"ר\s*/, '') || '?';
+        const cat = m.categoryLabel || m.category || (m.type === 'macro' ? 'הערכה תקופתית' : '—');
+        const dateStr = _fmtDateIL(m.timestamp || m.date);
+        const typeIcon = m.type === 'macro' ? '◐' : '⚡';
+        const typeColor = m.type === 'macro' ? 'purple' : 'blue';
+        return `
+          <button onclick="_openMicroDetailById('${escapeAttr(m.timestamp || '')}', '${escapeAttr(m.residentId || r.id)}')" class="w-full text-right flex items-center gap-3 py-2 px-2 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-b-0">
+            <span class="text-${typeColor}-600 text-base">${typeIcon}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-gray-800">${escapeHtml(evaluatorName)}</div>
+              <div class="text-xs text-gray-500">${escapeHtml(cat)} · ${dateStr}</div>
+            </div>
+            ${m.epaScores ? `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">EPA: ${(Object.values(m.epaScores).reduce((a,b)=>a+b,0) / Object.values(m.epaScores).length).toFixed(1)}/5</span>` : ''}
+            <span class="text-gray-400">←</span>
+          </button>`;
+      }).join('')}
+    </div>
+
+    <!-- Quick links -->
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <button onclick="navigateTo('chief-portfolio')" class="bg-blue-50 border border-blue-200 rounded-lg p-3 hover:bg-blue-100 transition text-right">
+        <div class="text-base">👤</div>
+        <div class="text-sm font-medium text-blue-900 mt-1">תיק המשובים שלי</div>
+        <div class="text-xs text-blue-700">היסטוריה מלאה + חתכים לפי תחום</div>
+      </button>
+      <button onclick="navigateTo('chief-self-micro')" class="bg-orange-50 border border-orange-200 rounded-lg p-3 hover:bg-orange-100 transition text-right">
+        <div class="text-base">◔</div>
+        <div class="text-sm font-medium text-orange-900 mt-1">משוב מהיר עצמי</div>
+        <div class="text-xs text-orange-700">תיעוד אישי של פעולות</div>
+      </button>
+      <button onclick="navigateTo('chief-self')" class="bg-purple-50 border border-purple-200 rounded-lg p-3 hover:bg-purple-100 transition text-right">
+        <div class="text-base">◐</div>
+        <div class="text-sm font-medium text-purple-900 mt-1">הערכה תקופתית עצמית</div>
+        <div class="text-xs text-purple-700">macro self-eval</div>
+      </button>
+    </div>
+  `;
+
+  // Now render notifications into the chief screen's banner (different id to avoid collision)
+  // Reuse the same logic but target the chief banner element
+  try { _renderChiefNotifications(r.id); } catch (e) { console.warn('Chief notifications render failed:', e); }
+}
+
+// v2.10.32: notification banner specific to chief dashboard (avoids id collision with resident screen)
+function _renderChiefNotifications(residentId) {
+  const banner = document.getElementById('resident-notifications-banner-chief');
+  if (!banner || !residentId) return;
+  // Reuse the same filter logic, write to chief's banner
+  const key = `cbme_resident_lastseen_${residentId}`;
+  const lastSeen = localStorage.getItem(key);
+  const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+  const all = [..._getLocalHistory(), ...seed];
+  const r = CURRENT_RESIDENT;
+  const myEvals = all.filter(h => {
+    if (h.residentId !== residentId && h.residentName !== r?.name) return false;
+    if (h.subType === 'draft') return false;
+    if (h.type !== 'micro' && h.type !== 'macro') return false;
+    if (h.evaluatorRole === 'resident') return false;
+    if (h.selfAssessment) return false;
+    if (h.evaluatorId && h.evaluatorId === residentId) return false;
+    return true;
+  });
+  const newOnes = myEvals.filter(h => new Date(h.timestamp || h.date || 0).getTime() > lastSeenMs);
+  if (newOnes.length === 0) { banner.innerHTML = ''; return; }
+  const preview = newOnes.slice().sort((a,b) => new Date(b.timestamp||b.date||0) - new Date(a.timestamp||a.date||0)).slice(0, 3).map(h => {
+    const evaluatorName = (h.evaluatorName || '').replace(/^ד"ר\s*/, '') || 'בכיר';
+    const cat = h.categoryLabel || h.category || (h.type === 'macro' ? 'תקופתית' : '—');
+    return `<div class="text-xs text-blue-800">• <strong>${escapeHtml(evaluatorName)}</strong> · ${escapeHtml(cat)} · ${_fmtDateIL(h.timestamp || h.date)}</div>`;
+  }).join('');
+  banner.innerHTML = `
+    <div class="bg-blue-50 border-2 border-blue-300 rounded-xl p-3 mb-4">
+      <div class="flex items-start gap-2">
+        <span class="text-xl">🔔</span>
+        <div class="flex-1">
+          <div class="text-sm font-semibold text-blue-900 mb-1">${newOnes.length} ${newOnes.length === 1 ? 'משוב חדש' : 'משובים חדשים'}</div>
+          <div class="space-y-0.5">${preview}</div>
+          <div class="flex gap-2 mt-2">
+            <button onclick="navigateTo('chief-portfolio')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">פתח תיק ←</button>
+            <button onclick="_markResidentEvalsRead('${escapeAttr(residentId)}'); renderChiefDashboard()" class="text-xs bg-white border border-blue-300 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-50">סמן כנקרא</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 // v2.10.31: Notification banner for residents — shows count of NEW evals received since last dashboard visit.
 // Storage: localStorage['cbme_resident_lastseen_${residentId}'] = ISO timestamp of last seen evals.
 function _renderResidentNotifications(residentId) {
@@ -6341,26 +6547,40 @@ function _clearEvalDateRange() { _clearEvalFilters(); }
 let _portfolioSelectedResident = null;
 // v2.10.10: portfolio KPI-tile filters — 'all' | 'micro' | 'macro' | 'self'
 let _portfolioFilter = 'all';
+// v2.10.32: portfolio CATEGORY filter — 'all' | 'delivery' | 'cs' | 'or' | 'lap' | 'triage' | 'oncall' | 'ward' | 'clinic'
+let _portfolioCategoryFilter = 'all';
 function _portfolioSetFilter(f) {
   _portfolioFilter = (_portfolioFilter === f && f !== 'all') ? 'all' : f;
   // Re-render whichever portfolio view is active
   if (currentScreen === 'pd-portfolio') renderPortfolio('pd');
   else renderPortfolio('resident');
 }
+function _portfolioSetCategoryFilter(cat) {
+  _portfolioCategoryFilter = (_portfolioCategoryFilter === cat && cat !== 'all') ? 'all' : cat;
+  if (currentScreen === 'pd-portfolio') renderPortfolio('pd');
+  else renderPortfolio('resident');
+}
 
 function renderPortfolio(viewer) {
   viewer = viewer || 'pd';
-  const screenId = viewer === 'resident' ? 'screen-resident-portfolio' : 'screen-pd-portfolio';
+  // v2.10.32: 'chief' viewer renders into chief screen; behaves like 'resident' (own data, no selector)
+  const screenId = viewer === 'resident' ? 'screen-resident-portfolio'
+                 : viewer === 'chief'    ? 'screen-chief-portfolio'
+                 : 'screen-pd-portfolio';
   const screen = document.getElementById(screenId);
   if (!screen) return;
 
   const isPd = viewer === 'pd';
   const role = currentUser?.role || viewer;
 
-  // For resident — always show own data
+  // For resident/chief — always show own data
   // For PD — show selector, default to first resident
   let targetResident = null;
   if (!isPd) {
+    // v2.10.32: for chief, resolve their resident profile by name (chief is also a senior resident)
+    if (viewer === 'chief') {
+      _setupChiefAsResident();
+    }
     targetResident = CURRENT_RESIDENT || RESIDENTS.find(r => r.id === currentUser?.id) || RESIDENTS[0];
     _portfolioSelectedResident = targetResident?.id || null;
   } else {
@@ -6410,6 +6630,32 @@ function renderPortfolio(viewer) {
   if (_portfolioFilter === 'micro')      displayEvals = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment);
   else if (_portfolioFilter === 'macro') displayEvals = allEvals.filter(e => e.type === 'macro');
   else if (_portfolioFilter === 'self')  displayEvals = allEvals.filter(e => e.selfAssessment);
+
+  // v2.10.32: apply CATEGORY filter (composable with KPI filter)
+  if (_portfolioCategoryFilter !== 'all') {
+    displayEvals = displayEvals.filter(e => (e.category || '') === _portfolioCategoryFilter);
+  }
+
+  // v2.10.32: compute counts per category from the *current type filter scope* (micro only — categories live on micros)
+  const microsForCats = (_portfolioFilter === 'macro')
+    ? []
+    : allEvals.filter(e => e.type === 'micro' && (_portfolioFilter !== 'self' || e.selfAssessment) && (_portfolioFilter !== 'micro' || !e.selfAssessment));
+  const catCounts = {
+    delivery: 0, cs: 0, or: 0, lap: 0, triage: 0, oncall: 0, ward: 0, clinic: 0
+  };
+  microsForCats.forEach(e => {
+    if (catCounts[e.category] !== undefined) catCounts[e.category]++;
+  });
+  const catMeta = [
+    { id: 'delivery', label: 'חדר לידה',      icon: '👶', color: 'pink' },
+    { id: 'cs',       label: 'ניתוח קיסרי',   icon: '🏥', color: 'red' },
+    { id: 'or',       label: 'פעולות בח״נ',  icon: '✂️', color: 'amber' },
+    { id: 'lap',      label: 'לפרוסקופיה',   icon: '🔬', color: 'indigo' },
+    { id: 'triage',   label: 'מיון נשים/יולדות', icon: '🚨', color: 'orange' },
+    { id: 'oncall',   label: 'תורנות',        icon: '🌙', color: 'blue' },
+    { id: 'ward',     label: 'אחריות מחלקה', icon: '📋', color: 'teal' },
+    { id: 'clinic',   label: 'מרפאה',         icon: '🩺', color: 'green' },
+  ];
 
   // Average EPA score from micro evals
   const microWithScores = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment && e.epaScores);
@@ -6481,6 +6727,30 @@ function renderPortfolio(viewer) {
           <div class="text-xs text-gray-500">ממוצע EPA</div>
           <div class="text-xl font-semibold text-green-700 mt-0.5">${avgEpa}</div>
         </div>
+      </div>
+
+      <!-- v2.10.32: Category filter tiles — חתכים לפי תחום קליני (micros only) -->
+      <div class="mt-3 pt-3 border-t border-gray-100">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div class="text-xs font-medium text-gray-600">📂 חתך לפי תחום</div>
+          ${_portfolioCategoryFilter !== 'all' ? `<button onclick="_portfolioSetCategoryFilter('all')" class="text-xs text-blue-600 hover:underline">× נקה סינון</button>` : ''}
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          ${catMeta.map(c => {
+            const active = _portfolioCategoryFilter === c.id;
+            const count = catCounts[c.id] || 0;
+            const dimmed = count === 0;
+            return `
+              <button onclick="_portfolioSetCategoryFilter('${c.id}')"
+                      ${dimmed ? 'disabled' : ''}
+                      class="rounded-lg p-2 text-center transition border-2 ${active ? `border-${c.color}-500 bg-${c.color}-100` : `border-transparent bg-${c.color}-50 hover:bg-${c.color}-100`} ${dimmed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">
+                <div class="text-lg leading-none">${c.icon}</div>
+                <div class="text-[10px] text-gray-600 mt-0.5 leading-tight">${c.label}</div>
+                <div class="text-sm font-semibold text-${c.color}-700 mt-0.5">${count}</div>
+              </button>`;
+          }).join('')}
+        </div>
+        ${_portfolioCategoryFilter !== 'all' ? `<div class="text-[11px] text-gray-500 mt-2">מציג ${displayEvals.length} משובים בתחום <strong>${catMeta.find(c => c.id === _portfolioCategoryFilter)?.label || ''}</strong></div>` : ''}
       </div>
     </div>
 
