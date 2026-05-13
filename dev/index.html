@@ -690,9 +690,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.15-dev';
+const APP_VERSION = '2.10.16-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.15: Cycle Configurator. ניהול תקופות הערכה בעורף הניהול (פתיחה, סגירה, ארכוב, עריכה). Q2/Q4 default=major, Q1/Q3=checkpoint. Hard lock = soft deadline +7 ימים. Dashboard מציג cycle strip + הוסר כפתור הפתיחה והdropdown המת.";
+const APP_VERSION_NOTES = "v2.10.16: dev-mode handler ל-submitAddUser ו-loadDynamicUsers. עכשיו ניתן להוסיף משתמשים דרך הממשק במצב dev (נשמר ב-localStorage ב-DYNAMIC_USERS_KEY=cbme_dynamic_users). ID יוצר אוטומטית מהמייל. Block של duplicates.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2325,6 +2325,15 @@ const PILOT_PGY_RANGE = [1, 2]; // expand later
 // Populated after login by loadAllUsers() (see Feature G handlers).
 // ───────────────────────────────────────────────────────────────────
 let DYNAMIC_USERS = [];   // Dynamic users (added via UI) — kept for backward compat
+// v2.10.16: localStorage key for dev-mode dynamic users (no backend)
+const DYNAMIC_USERS_KEY = 'cbme_dynamic_users';
+function _loadDynamicUsersFromLocal() {
+  try { return JSON.parse(localStorage.getItem(DYNAMIC_USERS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function _saveDynamicUsersToLocal(arr) {
+  return safeSetItem(DYNAMIC_USERS_KEY, JSON.stringify(arr));
+}
 let ALL_USERS_STATE = []; // Full state from list_all_users — includes archive flags
 
 // v2.6.0: RESIDENTS is `let` so it can be rebuilt after archive/restore.
@@ -11521,6 +11530,46 @@ async function submitAddUser() {
   btn.disabled = true;
   btn.textContent = 'שולח...';
 
+  // v2.10.16: dev-mode handler — save locally to DYNAMIC_USERS + localStorage when no backend
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    try {
+      // Block exact-duplicate emails (case-insensitive)
+      const norm = email.toLowerCase();
+      const exists = DYNAMIC_USERS.some(u => (u.email || '').toLowerCase() === norm) ||
+                     (typeof STAFF !== 'undefined' && ['pd','coordinator','attending','chief'].some(r => (STAFF[r] || []).some(s => (s.email || '').toLowerCase() === norm))) ||
+                     (typeof RESIDENT_EMAILS !== 'undefined' && Object.values(RESIDENT_EMAILS).some(e => (e || '').toLowerCase() === norm));
+      if (exists) {
+        errorEl.textContent = 'משתמש עם המייל הזה כבר קיים במערכת';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false; btn.textContent = 'הוסף ✓';
+        return;
+      }
+      // Generate id from email's local part + random suffix
+      const localPart = email.split('@')[0].replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+      const id = `dyn_${role}_${localPart}_${Date.now().toString(36).slice(-4)}`;
+      const initials = (name || '').replace(/^ד"ר\s+|פרופ'\s+/, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('');
+      const newUser = { id, name, email, role, initials, isDynamic: true, addedAt: new Date().toISOString(), addedBy: currentUser?.id || null };
+      if (role === 'resident' && start) newUser.start = start;
+      DYNAMIC_USERS.push(newUser);
+      _saveDynamicUsersToLocal(DYNAMIC_USERS);
+      // Also push to ALL_USERS_STATE for the staff list rendering
+      ALL_USERS_STATE.push({ ...newUser });
+      // Trigger RESIDENTS rebuild if a resident was added
+      if (role === 'resident' && typeof rebuildResidents === 'function') rebuildResidents();
+      logToAudit('add_user_dev', { id, email, role });
+      showToast(`✅ ${name} נוסף/ה בהצלחה (dev mode)`, 'success');
+      document.getElementById('add-user-modal')?.remove();
+      if (currentScreen === 'pd-data') renderDataManagementScreen();
+      return;
+    } catch (e) {
+      console.error('dev add_user failed:', e);
+      errorEl.textContent = 'שגיאה בהוספה מקומית: ' + e.message;
+      errorEl.classList.remove('hidden');
+      btn.disabled = false; btn.textContent = 'הוסף ✓';
+      return;
+    }
+  }
+
   const result = await callBackendAction('add_user', user);
   if (result.success) {
     const emailStatus = sendWelcomeEmail
@@ -11590,6 +11639,19 @@ async function callBackendAction(action, data) {
 }
 
 async function loadDynamicUsers() {
+  // v2.10.16: dev-mode — load from localStorage (no backend call)
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    DYNAMIC_USERS = _loadDynamicUsersFromLocal();
+    // ALL_USERS_STATE: merge dynamic into existing static list (read once at boot)
+    // Add dynamic that aren't already present
+    DYNAMIC_USERS.forEach(du => {
+      if (!ALL_USERS_STATE.some(u => u.id === du.id)) ALL_USERS_STATE.push({ ...du });
+    });
+    if (typeof rebuildResidents === 'function') rebuildResidents();
+    if (typeof renderScreen === 'function') renderScreen();
+    return;
+  }
+
   const result = await callBackendAction('list_dynamic_users', {});
   // Backend _ok() wraps payload in .data, callBackendAction wraps response in .data
   // So users are at result.data.data.users (double data nesting)
