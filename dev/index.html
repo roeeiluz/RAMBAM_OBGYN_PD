@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.24-dev';
+const APP_VERSION = '2.10.25-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.24: 'היסטוריית משובים והערכות' הוסר מהsidebar (משובים=בתוך 'משוב מהיר', הערכות=בתוך 'הערכה תקופתית'). 'משוב תקופתי' חוזר ל'הערכה תקופתית'. שורות בפאנל 'פעילות אחרונה' לחיצות לפתיחת modal פרטים מלא. 'ראה את כל' מסונן למשובים שלי בלבד.";
+const APP_VERSION_NOTES = "v2.10.25 (Phase 1/4): _collectResidentDossier() — תשתית מרכזית של נתוני מתמחה (פעולות, מבחנים, הערכות, מגמות, נע\"ת, פד). _renderMeetingReportMd() מייצר דוח פגישת סיכום מקיף (Markdown, ניתן להעתקה/הורדה/הדפסה ל-PDF). 3 entry points: Inbox 'מוכן לפגישת משוב', Submission Matrix (כפתור 📋 בשורות מוכנות), pd-portfolio (כפתור בולט).";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2533,6 +2533,188 @@ function getResidentCesareans(residentName) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// v2.10.25: RESIDENT DOSSIER — single source of truth for all data
+// about one resident. Used by:
+//   - Meeting Report generator (#13)
+//   - Custom Report Builder (#12 — individual mode)
+//   - AI Engine (#11 — resident-scoped queries)
+// Returns a structured object with all data gathered + computed insights.
+// PRIVACY: caller is responsible for trimming this dossier before
+// exposing to resident-scope (e.g., strip raw counts of others).
+// ═══════════════════════════════════════════════════════════════════
+function _collectResidentDossier(residentId, cycleId) {
+  const r = (typeof RESIDENTS !== 'undefined') ? RESIDENTS.find(x => x.id === residentId) : null;
+  if (!r) return null;
+
+  // Resolve cycle context
+  let activeCycle = null;
+  try { activeCycle = _getActiveCycle(); } catch (e) {}
+  const targetCycle = cycleId || activeCycle?.id || (typeof _currentQuarterId === 'function' ? _currentQuarterId() : null);
+
+  // Identity
+  const profile = typeof _getProfile === 'function' ? _getProfile(residentId) : {};
+  const additionalRoles = (profile.additionalRoles || []).map(id => {
+    const opt = (typeof ADDITIONAL_ROLE_OPTIONS !== 'undefined') ? ADDITIONAL_ROLE_OPTIONS.find(o => o.id === id) : null;
+    return opt ? { id, label: opt.label, icon: opt.icon } : { id, label: id, icon: '' };
+  });
+  const isTutor = (profile.additionalRoles || []).includes('tutor');
+  const customRoles = [profile.customRole1, profile.customRole2].filter(Boolean);
+
+  // Tenure
+  const start = r.start;  // YYYY-MM
+  const pgy = r.pgy;
+  const startDate = start ? new Date(start + '-01') : null;
+  const monthsInResidency = startDate ? Math.max(0, Math.round((Date.now() - startDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000))) : 0;
+  const yearsInResidency = Math.floor(monthsInResidency / 12);
+
+  // Procedures vs targets
+  const procRows = getResidentProcedures(r.name) || [];
+  const cesareans = getResidentCesareans(r.name);
+  const procSummary = procRows.map(p => ({
+    category: p.category,
+    target: p.target,
+    actual: p.actual,
+    pct: p.target > 0 ? Math.round((p.actual / p.target) * 100) : null,
+    status: p.actual >= p.target ? 'met' : p.actual >= p.target * 0.7 ? 'near' : 'below'
+  }));
+  const procsMet = procSummary.filter(p => p.status === 'met').length;
+  const procsTotal = procSummary.length;
+
+  // Exams
+  const exams = getResidentExams(r.name) || [];
+  const examTrend = exams.length >= 2
+    ? (exams[exams.length - 1].score - exams[0].score)
+    : null;
+  const lastExam = exams[exams.length - 1] || null;
+
+  // Evaluations — all macro + micro for this resident
+  const rawHistory = typeof _getLocalHistory === 'function' ? _getLocalHistory() : [];
+  const seedEvals = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+  const seen = new Set();
+  const allEvals = [];
+  [...rawHistory, ...seedEvals].forEach(h => {
+    const key = `${h.timestamp || h.date || 0}_${h.residentId || ''}_${h.type || ''}_${h.evaluatorId || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (h.residentId === residentId) allEvals.push(h);
+  });
+
+  // Split by type and cycle
+  const macroAll = allEvals.filter(e => e.type === 'macro' && e.subType !== 'draft');
+  const macroCurrentCycle = macroAll.filter(e => e.quarterId === targetCycle);
+  const macroSelf = macroCurrentCycle.find(e => e.subType === 'final' && e.evaluatorRole === 'resident');
+  const macroAttendings = macroCurrentCycle.filter(e => e.subType === 'final' && e.evaluatorRole !== 'resident');
+  const macroPdApproved = macroCurrentCycle.find(e => e.subType === 'pd_approved');
+
+  const micros = allEvals.filter(e => e.type === 'micro' && !e.selfAssessment && e.subType !== 'draft');
+  const microsSelf = allEvals.filter(e => e.type === 'micro' && e.selfAssessment);
+
+  // Micro feedback aggregation by category for current period (last 90 days as proxy if no cycle)
+  const periodStart = activeCycle?.startDate ? new Date(activeCycle.startDate).getTime() : (Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const microsInPeriod = micros.filter(m => new Date(m.timestamp || m.date || 0).getTime() >= periodStart);
+  const microByCategory = {};
+  microsInPeriod.forEach(m => {
+    const cat = m.category || m.categoryLabel || 'other';
+    if (!microByCategory[cat]) microByCategory[cat] = { count: 0, scores: [], comments: [], categoryLabel: m.categoryLabel || cat };
+    microByCategory[cat].count++;
+    if (m.epaScores) Object.values(m.epaScores).forEach(s => { if (typeof s === 'number') microByCategory[cat].scores.push(s); });
+    if (m.visibleFeedback) microByCategory[cat].comments.push({ text: m.visibleFeedback, evaluator: m.evaluatorName, date: m.timestamp });
+  });
+  // Compute averages
+  Object.values(microByCategory).forEach(c => {
+    c.avgScore = c.scores.length ? +(c.scores.reduce((a, b) => a + b, 0) / c.scores.length).toFixed(2) : null;
+  });
+
+  // Macro competencies — aggregate attending averages for current cycle
+  const competencyAgg = {};
+  if (typeof ACGME_COMPETENCIES !== 'undefined') {
+    ACGME_COMPETENCIES.forEach(c => {
+      const scores = [];
+      const comments = [];
+      let selfScore = null;
+      macroAttendings.forEach(m => {
+        const cdata = m.competencies?.[c.key];
+        if (cdata?.score != null) scores.push(cdata.score);
+        if (cdata?.comment) comments.push({ text: cdata.comment, evaluator: m.evaluatorName });
+      });
+      if (macroSelf) {
+        const cdata = macroSelf.competencies?.[c.key];
+        if (cdata?.score != null) selfScore = cdata.score;
+      }
+      competencyAgg[c.key] = {
+        key: c.key,
+        label: c.short || c.label || c.key,
+        attendingAvg: scores.length ? +(scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : null,
+        selfScore,
+        gap: (scores.length && selfScore != null) ? +(selfScore - (scores.reduce((a, b) => a + b, 0) / scores.length)).toFixed(2) : null,
+        attendingCount: scores.length,
+        comments
+      };
+    });
+  }
+
+  // Compare to previous cycle for trends
+  const prevCycle = macroAll
+    .map(e => e.quarterId)
+    .filter(q => q && q !== targetCycle)
+    .sort()
+    .reverse()[0];
+  const prevCycleEvals = prevCycle ? macroAll.filter(e => e.quarterId === prevCycle) : [];
+  const trends = {};
+  if (typeof ACGME_COMPETENCIES !== 'undefined' && prevCycleEvals.length) {
+    ACGME_COMPETENCIES.forEach(c => {
+      const prevScores = prevCycleEvals.flatMap(m => {
+        const s = m.competencies?.[c.key]?.score;
+        return (typeof s === 'number') ? [s] : [];
+      });
+      const prevAvg = prevScores.length ? prevScores.reduce((a, b) => a + b, 0) / prevScores.length : null;
+      const curAvg = competencyAgg[c.key]?.attendingAvg;
+      if (prevAvg != null && curAvg != null) {
+        trends[c.key] = +(curAvg - prevAvg).toFixed(2);
+      }
+    });
+  }
+
+  // Red flag
+  const flag = (typeof _flagFor === 'function') ? _flagFor(residentId) : null;
+
+  // Personal pad
+  const personalPad = (typeof _getResidentPad === 'function') ? _getResidentPad(residentId) : '';
+
+  // Top strengths and focus areas (computed for meeting talking points)
+  const compRanked = Object.values(competencyAgg).filter(c => c.attendingAvg != null);
+  compRanked.sort((a, b) => b.attendingAvg - a.attendingAvg);
+  const topStrengths = compRanked.slice(0, 2);
+  const focusAreas = compRanked.slice(-2).reverse();
+
+  return {
+    resident: { id: residentId, name: r.name, pgy, start, isDemo: !!r.isDemo },
+    profile: { nameEn: profile.nameEn || '', additionalRoles, customRoles, isTutor, photoDataUrl: profile.photoDataUrl || null },
+    tenure: { monthsInResidency, yearsInResidency, startMonth: start },
+    cycle: { id: targetCycle, type: activeCycle?.cycleType, deadline: activeCycle?.submissionDeadline, hardLock: activeCycle?.hardLockDate },
+    procedures: { rows: procSummary, met: procsMet, total: procsTotal, cesareans },
+    exams: { history: exams, lastExam, trend: examTrend },
+    macro: {
+      self: macroSelf || null,
+      attendings: macroAttendings,
+      pdApproved: macroPdApproved || null,
+      competencies: competencyAgg,
+      trendsVsPrevCycle: trends,
+      prevCycleId: prevCycle
+    },
+    micros: {
+      total: micros.length,
+      inPeriod: microsInPeriod.length,
+      byCategory: microByCategory,
+      selfMicros: microsSelf.length
+    },
+    flag,
+    personalPad,
+    insights: { topStrengths, focusAreas }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // EXAMS DATA (loaded from periodic exams Excel — uploaded by PD)
 // Each exam: id, name, date (YYYY-MM), passingGrade, scores (per-resident map)
 // ═══════════════════════════════════════════════════════════════════
@@ -2562,6 +2744,289 @@ function getResidentExams(residentName) {
     .filter(e => e.score != null)
     .sort((a, b) => a.date.localeCompare(b.date));
   return list;
+}
+
+// v2.10.25: Meeting Report — Markdown renderer.
+// Input: dossier from _collectResidentDossier(). Output: structured markdown.
+function _renderMeetingReportMd(d) {
+  if (!d) return '# שגיאה\n\nלא נמצאו נתונים על המתמחה.';
+  const lines = [];
+  const r = d.resident;
+  const pgyName = ['א', 'ב', 'ג', 'ד', 'ה', 'ו'][r.pgy - 1] || r.pgy;
+  const stage = r.pgy >= 4 ? 'שלב ב\'' : 'שלב א\'';
+
+  // Header
+  lines.push(`# דוח פגישת סיכום הערכה תקופתית`);
+  lines.push('');
+  lines.push(`**מתמחה**: ${r.name}${d.profile.nameEn ? ` (${d.profile.nameEn})` : ''}`);
+  lines.push(`**שנת התמחות**: שנה ${pgyName} · ${stage} · PGY ${r.pgy}`);
+  lines.push(`**משך התמחות**: ${d.tenure.monthsInResidency} חודשים${d.tenure.startMonth ? ` (מ-${d.tenure.startMonth})` : ''}`);
+  if (d.cycle.id) lines.push(`**תקופת ההערכה**: ${d.cycle.id}${d.cycle.deadline ? ` · יעד ${typeof _fmtDateIL === 'function' ? _fmtDateIL(d.cycle.deadline) : d.cycle.deadline}` : ''}`);
+  // Roles / tutor
+  if (d.profile.additionalRoles.length || d.profile.customRoles.length) {
+    const rolesStr = [
+      ...d.profile.additionalRoles.map(r => `${r.icon || ''} ${r.label}`),
+      ...d.profile.customRoles
+    ].join(' · ');
+    lines.push(`**תפקידים נוספים**: ${rolesStr}`);
+  } else {
+    lines.push(`**תפקידים נוספים**: ללא`);
+  }
+  if (d.flag) {
+    lines.push(`**🚩 דגל ${d.flag.color === 'red' ? 'אדום' : 'כתום'}**: ${d.flag.reason || 'ללא סיבה מתועדת'} (${d.flag.setByName || d.flag.setBy})`);
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  // Section 1: Procedures
+  lines.push('## 1. פעולות מתמחים — אל מול יעדים');
+  lines.push('');
+  if (d.procedures.rows.length === 0) {
+    lines.push('_אין נתוני פעולות זמינים._');
+  } else {
+    lines.push('| קטגוריה | בוצע | יעד | אחוז | סטטוס |');
+    lines.push('|---|---:|---:|---:|:---:|');
+    d.procedures.rows.forEach(p => {
+      const statusIcon = p.status === 'met' ? '✅' : p.status === 'near' ? '🟡' : '🔴';
+      lines.push(`| ${p.category} | ${p.actual} | ${p.target} | ${p.pct !== null ? p.pct + '%' : '—'} | ${statusIcon} |`);
+    });
+    lines.push('');
+    lines.push(`**סיכום**: ${d.procedures.met} מתוך ${d.procedures.total} קטגוריות עברו יעד.`);
+    if (d.procedures.cesareans) {
+      const c = d.procedures.cesareans;
+      lines.push(`**ניתוחים קיסריים**: ${c.total} סך הכל (${c.first} ראשון, ${c.repeat} חוזר) · יעד ${c.target} · ${c.total >= c.target ? '✅ עבר יעד' : '🔴 מתחת ליעד'}`);
+    }
+  }
+  lines.push('');
+
+  // Section 2: Exams
+  lines.push('## 2. ציוני בחינות מחלקתיות');
+  lines.push('');
+  if (d.exams.history.length === 0) {
+    lines.push('_עוד לא ניגש למבחנים מחלקתיים, או אין ציון רשום._');
+  } else {
+    lines.push('| תאריך | ציון | עובר? |');
+    lines.push('|---|---:|:---:|');
+    d.exams.history.forEach(e => {
+      const passing = e.score >= e.passingGrade ? '✅' : '🔴';
+      lines.push(`| ${e.dateLabel} | ${e.score} | ${passing} |`);
+    });
+    lines.push('');
+    if (d.exams.trend !== null) {
+      const trendIcon = d.exams.trend > 0 ? '↗' : d.exams.trend < 0 ? '↘' : '→';
+      lines.push(`**מגמה**: ${trendIcon} ${Math.abs(d.exams.trend) > 0 ? Math.abs(d.exams.trend).toFixed(0) + ' נקודות ' + (d.exams.trend > 0 ? 'עלייה' : 'ירידה') : 'יציב'} מהמבחן הראשון.`);
+    }
+  }
+  lines.push('');
+
+  // Section 3: Macro evaluation
+  lines.push('## 3. הערכה תקופתית — תקופה נוכחית');
+  lines.push('');
+  if (!d.macro.self && d.macro.attendings.length === 0) {
+    lines.push('_עדיין לא הוגשה הערכה תקופתית לתקופה זו._');
+  } else {
+    lines.push(`**הערכות שנאספו**: ${d.macro.attendings.length} בכירים${d.macro.self ? ' + הערכה עצמית' : ''}${d.macro.pdApproved ? ' + אישור PD ✅' : ''}`);
+    lines.push('');
+    const compEntries = Object.values(d.macro.competencies).filter(c => c.attendingAvg !== null);
+    if (compEntries.length) {
+      lines.push('### לפי קומפטנציה');
+      lines.push('');
+      lines.push('| קומפטנציה | בכירים | עצמי | פער | מגמה מהתקופה הקודמת |');
+      lines.push('|---|---:|---:|---:|---:|');
+      compEntries.forEach(c => {
+        const gapStr = c.gap !== null ? (c.gap > 0 ? '+' + c.gap : c.gap) : '—';
+        const trend = d.macro.trendsVsPrevCycle[c.key];
+        const trendStr = trend !== undefined ? (trend > 0 ? '↗ +' + trend : trend < 0 ? '↘ ' + trend : '→ 0') : '—';
+        lines.push(`| ${c.label} | ${c.attendingAvg} | ${c.selfScore !== null ? c.selfScore : '—'} | ${gapStr} | ${trendStr} |`);
+      });
+      lines.push('');
+    }
+    // Comments per competency (top 1-2)
+    const compsWithComments = compEntries.filter(c => c.comments.length > 0);
+    if (compsWithComments.length) {
+      lines.push('### תמצית הערות בכירים');
+      lines.push('');
+      compsWithComments.forEach(c => {
+        lines.push(`**${c.label}**:`);
+        c.comments.slice(0, 2).forEach(comment => {
+          lines.push(`- ${comment.text.trim()}${comment.evaluator ? ' _(' + comment.evaluator + ')_' : ''}`);
+        });
+        lines.push('');
+      });
+    }
+    // PD approval content if exists
+    if (d.macro.pdApproved) {
+      const a = d.macro.pdApproved;
+      lines.push('### סיכום PD מאושר');
+      lines.push('');
+      if (a.visibleFeedback) lines.push(`> ${a.visibleFeedback.trim()}`);
+      if (a.improvePoints) {
+        lines.push('');
+        lines.push('**נקודות לשיפור**:');
+        lines.push(a.improvePoints);
+      }
+      if (a.goals) {
+        lines.push('');
+        lines.push('**יעדים לתקופה הבאה**:');
+        lines.push(a.goals);
+      }
+      if (a.recommendation) lines.push(`\n**המלצה כוללת**: ${a.recommendation}`);
+      lines.push('');
+    }
+  }
+  lines.push('');
+
+  // Section 4: Micro feedback summary
+  lines.push('## 4. סיכום משובים מהירים בתקופה');
+  lines.push('');
+  if (d.micros.inPeriod === 0) {
+    lines.push('_עדיין לא ניתנו משובים מהירים בתקופה זו._');
+  } else {
+    lines.push(`**סך הכל**: ${d.micros.inPeriod} משובים בתקופה הנוכחית (${d.micros.total} כולל היסטוריה)`);
+    if (d.micros.selfMicros > 0) lines.push(`**משובים עצמיים שנתת**: ${d.micros.selfMicros}`);
+    lines.push('');
+    lines.push('### לפי קטגוריה');
+    lines.push('');
+    lines.push('| תחום | מספר משובים | ממוצע EPA |');
+    lines.push('|---|---:|---:|');
+    Object.entries(d.micros.byCategory).forEach(([cat, info]) => {
+      lines.push(`| ${info.categoryLabel} | ${info.count} | ${info.avgScore !== null ? info.avgScore : '—'} |`);
+    });
+    lines.push('');
+  }
+  lines.push('');
+
+  // Section 5: Personal pad (if filled)
+  if (d.personalPad && d.personalPad.trim()) {
+    lines.push('## 5. מטרות אישיות (פד אישי של המתמחה)');
+    lines.push('');
+    lines.push('> ' + d.personalPad.replace(/\n/g, '\n> '));
+    lines.push('');
+  }
+
+  // Section 6: Talking points for the meeting
+  lines.push('## 6. נקודות מומלצות לפגישה');
+  lines.push('');
+  if (d.insights.topStrengths.length) {
+    lines.push('### 💪 חוזקות מרכזיות');
+    d.insights.topStrengths.forEach(s => {
+      lines.push(`- **${s.label}** — ממוצע בכירים ${s.attendingAvg}/5`);
+    });
+    lines.push('');
+  }
+  if (d.insights.focusAreas.length) {
+    lines.push('### 🎯 תחומים למיקוד');
+    d.insights.focusAreas.forEach(s => {
+      lines.push(`- **${s.label}** — ממוצע בכירים ${s.attendingAvg}/5${s.comments.length ? ' · ' + s.comments[0].text.slice(0, 80) + (s.comments[0].text.length > 80 ? '...' : '') : ''}`);
+    });
+    lines.push('');
+  }
+  // Procedures gaps
+  const procGaps = d.procedures.rows.filter(p => p.status === 'below').slice(0, 3);
+  if (procGaps.length) {
+    lines.push('### 📊 פערים מספריים בפעולות');
+    procGaps.forEach(p => {
+      lines.push(`- ${p.category}: ${p.actual}/${p.target} (${p.pct}%)`);
+    });
+    lines.push('');
+  }
+
+  lines.push('');
+  lines.push('---');
+  lines.push(`*דוח נוצר אוטומטית · ${new Date().toLocaleDateString('he-IL')} · CBME רמב"ם · v${typeof APP_VERSION !== 'undefined' ? APP_VERSION : '?'}*`);
+
+  return lines.join('\n');
+}
+
+// v2.10.25: open modal with the generated meeting report
+function _openMeetingReportModal(residentId) {
+  const dossier = _collectResidentDossier(residentId);
+  if (!dossier) { showToast('שגיאה: לא נמצא מתמחה', 'error'); return; }
+  const md = _renderMeetingReportMd(dossier);
+
+  const modal = document.createElement('div');
+  modal.id = 'meeting-report-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-gray-200">
+        <div>
+          <h2 class="text-base font-semibold">📋 דוח פגישת סיכום — ${escapeHtml(dossier.resident.name)}</h2>
+          <p class="text-xs text-gray-500 mt-0.5">תקופה ${escapeHtml(dossier.cycle.id || '—')} · נוצר ${typeof _fmtDateIL === 'function' ? _fmtDateIL(new Date().toISOString()) : new Date().toLocaleDateString('he-IL')}</p>
+        </div>
+        <button onclick="document.getElementById('meeting-report-modal').remove()" class="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+      </div>
+      <div class="flex items-center gap-2 p-3 border-b border-gray-100 bg-gray-50 flex-wrap">
+        <button onclick="_copyMeetingReportToClipboard()" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">📋 העתק (Markdown)</button>
+        <button onclick="_downloadMeetingReportMd('${escapeAttr(dossier.resident.name)}')" class="text-xs px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">⬇ הורד .md</button>
+        <button onclick="_printMeetingReport()" class="text-xs px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">🖨 הדפס / PDF</button>
+        <div class="text-[10px] text-gray-400 mr-auto">העתק → Word/Drive · הדפס → PDF דרך הדפדפן</div>
+      </div>
+      <div id="meeting-report-content" class="flex-1 overflow-y-auto p-5 text-sm leading-relaxed" style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, monospace; direction: rtl;">${escapeHtml(md)}</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  // Stash markdown for copy/download actions
+  window._lastMeetingReportMd = md;
+  window._lastMeetingReportName = dossier.resident.name;
+}
+
+function _copyMeetingReportToClipboard() {
+  const md = window._lastMeetingReportMd;
+  if (!md) return;
+  try {
+    navigator.clipboard.writeText(md).then(() => showToast('✓ הדוח הועתק ללוח (Markdown)', 'success'));
+  } catch (e) { showToast('לא ניתן להעתיק — סמן/י ידנית', 'error'); }
+}
+
+function _downloadMeetingReportMd(name) {
+  const md = window._lastMeetingReportMd;
+  if (!md) return;
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (name || 'resident').replace(/[^א-תa-zA-Z0-9]+/g, '_');
+  const date = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `meeting_${safeName}_${date}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('⬇ הקובץ ירד למחשב', 'success');
+}
+
+function _printMeetingReport() {
+  const md = window._lastMeetingReportMd;
+  if (!md) return;
+  // Build a print-friendly HTML
+  const html = md
+    .replace(/^# (.*)$/gm, '<h1 style="font-size:18pt; border-bottom:2px solid #6b21a8; padding-bottom:4px;">$1</h1>')
+    .replace(/^## (.*)$/gm, '<h2 style="font-size:14pt; color:#6b21a8; margin-top:18pt;">$1</h2>')
+    .replace(/^### (.*)$/gm, '<h3 style="font-size:12pt; margin-top:12pt;">$1</h3>')
+    .replace(/^\*\*(.*?)\*\*: (.*)$/gm, '<p><strong>$1</strong>: $2</p>')
+    .replace(/^\*\*(.*?)\*\*$/gm, '<p><strong>$1</strong></p>')
+    .replace(/^- (.*)$/gm, '<li>$1</li>')
+    .replace(/^> (.*)$/gm, '<blockquote style="border-right:3px solid #ddd; padding:4px 12px; margin:8px 0; color:#555;">$1</blockquote>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <!DOCTYPE html><html lang="he" dir="rtl"><head>
+    <meta charset="UTF-8"><title>${window._lastMeetingReportName} - דוח פגישת סיכום</title>
+    <style>
+      body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; line-height: 1.6; color: #1f2937; direction: rtl; }
+      table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+      th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: right; font-size: 11pt; }
+      th { background: #f3f4f6; }
+      @media print { body { margin: 0; padding: 15mm; } @page { size: A4; margin: 0; } }
+    </style></head><body>${html}</body></html>
+  `);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
 }
 
 // Compute department average for a given exam
@@ -3352,8 +3817,11 @@ function _computePdInbox() {
         icon: '🤝', color: 'purple',
         title: `${readyForMeeting.length} ${readyForMeeting.length === 1 ? 'מתמחה' : 'מתמחים'} מוכן/ים לפגישת משוב`,
         sub: `${names}${more} · הערכה עצמית + 3+ בכירים הושלמו, מחכה לפגישת PD`,
-        action: { label: 'תאם פגישה ←', onclick: "navigateTo('pd-macro')" }
+        // v2.10.25: pick resident + open meeting report
+        action: { label: '📋 הפק דוח פגישה ←', onclick: "_openReadyForMeetingPicker()" }
       });
+      // Stash the list for the picker
+      window._inboxReadyForMeeting = readyForMeeting;
     }
   } catch (e) { console.warn('inbox approval/meeting', e); }
 
@@ -3517,10 +3985,14 @@ function _renderSubmissionMatrix() {
               const attendingCellHtml = r.requiredTotal === 0
                 ? `<span class="text-gray-400 text-[10px]">לא נשלחה בקשה</span>`
                 : `<div class="flex items-center justify-center gap-1 flex-wrap"><span class="font-medium">${r.requiredDone}/${r.requiredTotal}</span>${r.attendingProgress.slice(0, 5).map(a => `<span class="${a.done ? 'text-green-600' : 'text-gray-400'} text-xs" title="${escapeAttr(a.name + (a.done ? ' (הוגש)' : ' (ממתין)'))}">${a.done ? '✓' : '○'}</span>`).join('')}${r.requiredTotal > 5 ? '<span class="text-[10px] text-gray-400">+'+(r.requiredTotal-5)+'</span>' : ''}</div>`;
+              // v2.10.25: ready-for-meeting → meeting report button + approval button
+              const reportBtn = (r.selfStatus === 'done' && r.requiredDone >= 3)
+                ? `<button onclick="_openMeetingReportModal('${escapeAttr(r.resident.id)}')" class="text-[10px] text-purple-600 hover:underline" title="הפק דוח פגישת סיכום">📋</button>`
+                : '';
               const actionBtn = r.pdStatus === 'done'
-                ? `<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'view')" class="text-[10px] text-purple-600 hover:underline">צפה</button>`
+                ? `<div class="flex items-center gap-1 justify-end">${reportBtn}<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'view')" class="text-[10px] text-purple-600 hover:underline">צפה</button></div>`
                 : r.pdStatus === 'ready'
-                ? `<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'normal')" class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded">אשר ←</button>`
+                ? `<div class="flex items-center gap-1 justify-end">${reportBtn}<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'normal')" class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded">אשר ←</button></div>`
                 : `<span class="text-[10px] text-gray-400">—</span>`;
               return `
                 <tr class="border-b border-gray-50 hover:bg-gray-50">
@@ -3542,6 +4014,43 @@ function _renderSubmissionMatrix() {
       <div class="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-100">דרישת בכירים נגזרת מבקשת ההערכה הפעילה. ניתן להוסיף דרישה דרך מסך "בקשות הערכה".</div>
     </div>
   `;
+}
+
+// v2.10.25: picker modal for "ready for meeting" inbox item
+function _openReadyForMeetingPicker() {
+  const list = window._inboxReadyForMeeting || [];
+  if (!list.length) {
+    // Fall back: any resident with self-eval + attending macros for current cycle
+    showToast('אין כרגע מתמחים מוכנים לפגישה. בחר מהמטריצה למטה.', 'info');
+    return;
+  }
+  // If only 1 — skip picker
+  if (list.length === 1) {
+    _openMeetingReportModal(list[0].residentId);
+    return;
+  }
+  const modal = document.createElement('div');
+  modal.id = 'meeting-picker-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl max-w-md w-full p-5">
+      <h3 class="text-base font-semibold mb-1">🤝 בחר/י מתמחה לדוח פגישה</h3>
+      <p class="text-xs text-gray-500 mb-3">${list.length} מתמחים מוכנים — הערכה עצמית + 3+ בכירים הוגשו</p>
+      <div class="space-y-1 max-h-80 overflow-y-auto">
+        ${list.map(p => {
+          const rname = (p.residentName || '?').replace(/^ד"ר\s+/, '');
+          return `<button onclick="document.getElementById('meeting-picker-modal').remove(); _openMeetingReportModal('${escapeAttr(p.residentId)}')" class="w-full text-right text-sm py-2.5 px-3 hover:bg-purple-50 rounded-lg flex items-center gap-2 border-b border-gray-50">
+            <span class="text-purple-600">📋</span>
+            <span class="flex-1">${escapeHtml(rname)}</span>
+            <span class="text-xs text-gray-400">${p.attendingCount} בכירים</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <button onclick="document.getElementById('meeting-picker-modal').remove()" class="w-full mt-3 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">ביטול</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
 }
 
 function _renderPdInbox() {
@@ -5409,6 +5918,9 @@ function renderPortfolio(viewer) {
           <h1 class="text-lg font-semibold">${isPd ? 'תיק אישי מתמחה' : 'תיק המשובים שלי'}</h1>
           <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'כל ההערכות וההיסטוריה של מתמחה נבחר' : 'כל ההערכות וההיסטוריה שלי'}</p>
         </div>
+        ${isPd ? `
+          <button onclick="_openMeetingReportModal('${escapeAttr(targetResident.id)}')" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">📋 דוח פגישת סיכום</button>
+        ` : ''}
       </div>
     </div>
 
