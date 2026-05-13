@@ -693,9 +693,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.18-dev';
+const APP_VERSION = '2.10.19-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.18: דשבורד PD — Inbox widget בראש המסך. עד 5 פעולות דרושות ממוינות לפי דחיפות: תקופה לא פתוחה / דדליין מתקרב / סיכומים ממתינים לאישור / בקשות פגו / מתמחים 30+ ימים ללא הערכה. אריחי KPI נשארים מתחת.";
+const APP_VERSION_NOTES = "v2.10.19: תיקון באג data-name בבקשות הערכה (היה מציג 'ד' במקום שם מלא). פורמט תאריך ישראלי DD-MM-YYYY בכל המקומות הגלויים למשתמש. הכלת הערכה עצמית במתמחה אוטומטית (checkbox מסומן by default). פאנל צד במסך בקשות הערכה — רשימת מתמחים שטרם נשלחה אליהם בקשה (לחיצה פותחת טופס עם המתמחה מסומן מראש). הסבר על דדליין רך/נעילה סופית מוצג בעת תקופה פעילה.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3226,7 +3226,7 @@ function _computePdInbox() {
         urgency: 90,
         icon: '⏰', color: 'amber',
         title: `דדליין ההגשה מתקרב — ${days === 0 ? 'היום!' : days + ' ימים נותרו'}`,
-        sub: `תקופה ${activeCycle.id} · יעד ${activeCycle.submissionDeadline}`,
+        sub: `תקופה ${activeCycle.id} · יעד ${_fmtDateIL(activeCycle.submissionDeadline)}`,
         action: { label: 'נהל ←', onclick: "navigateTo('pd-data')" }
       });
     } else if (days !== null && days < 0) {
@@ -3234,7 +3234,7 @@ function _computePdInbox() {
         urgency: 95,
         icon: '🚨', color: 'red',
         title: `דדליין ההגשה פג לפני ${Math.abs(days)} ימים`,
-        sub: `תקופה ${activeCycle.id} · יעד ${activeCycle.submissionDeadline} · נעילה סופית: ${activeCycle.hardLockDate || '—'}`,
+        sub: `תקופה ${activeCycle.id} · יעד ${_fmtDateIL(activeCycle.submissionDeadline)} · נעילה סופית: ${_fmtDateIL(activeCycle.hardLockDate)}`,
         action: { label: 'בדוק מצב ←', onclick: "navigateTo('pd-data')" }
       });
     }
@@ -3379,7 +3379,7 @@ function renderPdDashboard() {
         const days = _daysToSubmissionDeadline();
         const color = days == null ? 'text-gray-500' : days < 0 ? 'text-red-600' : days <= 7 ? 'text-amber-700' : 'text-gray-700';
         const daysLabel = days == null ? '' : days < 0 ? `(פג לפני ${Math.abs(days)} ימים)` : days === 0 ? '(היום!)' : `(${days} ימים נותרו)`;
-        stripEl.innerHTML = `<span class="${color}">📅 ${escapeHtml(ac.id)} ${_cycleTypeLabel(ac.cycleType).split(' ')[0]} · יעד ${escapeHtml(ac.submissionDeadline || '—')} ${daysLabel}</span>`;
+        stripEl.innerHTML = `<span class="${color}">📅 ${escapeHtml(ac.id)} ${_cycleTypeLabel(ac.cycleType).split(' ')[0]} · יעד ${_fmtDateIL(ac.submissionDeadline)} ${daysLabel}</span>`;
       }
     }
   } catch (e) { console.warn('cycle strip render error', e); }
@@ -6647,6 +6647,45 @@ function _fmtDateTimeHe(iso) {
   } catch (e) { return iso; }
 }
 
+// v2.10.19: Israeli date format DD-MM-YYYY for compact display
+// Accepts: 'YYYY-MM-DD' (date input string), full ISO timestamp, or Date object.
+function _fmtDateIL(s) {
+  if (!s) return '—';
+  try {
+    // YYYY-MM-DD short form → fast path
+    if (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, d] = s.split('-');
+      return `${d}-${m}-${y}`;
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}-${mm}-${d.getFullYear()}`;
+  } catch (e) { return String(s); }
+}
+
+// v2.10.19: resolve an evaluator name by id — defensive fallback for legacy data
+// where data-name was corrupted (e.g., truncated to "ד" because of unescaped quote).
+function _resolveEvaluatorName(id, fallbackName) {
+  // Check static STAFF first
+  for (const role of ['pd', 'coordinator', 'attending', 'chief']) {
+    const found = (STAFF[role] || []).find(u => u.id === id);
+    if (found) return found.name;
+  }
+  // Dynamic users
+  if (typeof DYNAMIC_USERS !== 'undefined') {
+    const dyn = DYNAMIC_USERS.find(u => u.id === id);
+    if (dyn) return dyn.name;
+  }
+  // Resident (for self-eval requests)
+  const r = RESIDENTS.find(x => x.id === id);
+  if (r) return r.name + ' (עצמי)';
+  // If fallback name is suspiciously short (≤2 chars), treat as corrupted
+  if (fallbackName && fallbackName.trim().length > 2) return fallbackName;
+  return id || '?';
+}
+
 function listResidentsWithMacroEvalsForQuarter(quarterId) {
   // Build map of resident → submission count for this quarter
   // Merges DEMO_SEED_EVALUATIONS + localStorage history
@@ -7544,64 +7583,110 @@ function renderEvalRequests() {
     return `בעוד ${diffDays} ימים`;
   };
 
+  // v2.10.19: residents WITHOUT an open request — surfaced in side panel
+  const residentsWithOpenReq = new Set(requests.filter(r => r.status === 'open').map(r => r.residentId));
+  const needingEval = RESIDENTS.filter(r => !residentsWithOpenReq.has(r.id));
+
   screen.innerHTML = `
     <div class="mb-5 flex items-start justify-between gap-3 flex-wrap">
       <div>
         <h1 class="text-lg font-semibold">בקשות הערכה תקופתית</h1>
-        <p class="text-xs text-gray-500 mt-0.5">שלח/י בקשות לרופאים בכירים למילוי הערכה למתמחה ספציפי עד תאריך יעד</p>
+        <p class="text-xs text-gray-500 mt-0.5">שלח/י בקשות לבכירים למילוי הערכה למתמחה ספציפי עד תאריך יעד. בכל בקשה ניתן לכלול גם הערכה עצמית של המתמחה.</p>
       </div>
       <button onclick="_openEvalRequestModal()" class="text-sm px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">+ בקשה חדשה</button>
     </div>
 
-    ${requests.length === 0 ? `
-      <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
-        <div class="text-4xl mb-2">✉</div>
-        <div class="text-sm font-medium text-gray-900 mb-1">אין בקשות פתוחות</div>
-        <div class="text-xs text-gray-500">לחץ/י על "בקשה חדשה" כדי לפתוח את הבקשה הראשונה</div>
-      </div>
-    ` : `
-      <div class="space-y-3">
-        ${requests.map(req => {
-          const completion = _evalRequestCompletionMap(req);
-          const doneCount = completion.filter(c => c.done).length;
-          const totalCount = completion.length;
-          const allDone = doneCount === totalCount;
-          const pastDeadline = req.deadline && req.deadline < today;
-          return `
-            <div class="bg-white rounded-xl border ${allDone ? 'border-green-200 bg-green-50/30' : pastDeadline ? 'border-red-200 bg-red-50/30' : 'border-gray-200'} p-4">
-              <div class="flex items-start justify-between gap-3 flex-wrap mb-2">
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium">${escapeHtml(req.residentName)} · רבעון ${escapeHtml(req.quarterId)}</div>
-                  <div class="text-xs text-gray-500 mt-0.5">תאריך יעד: ${req.deadline || '—'} · ${fmtRel(req.deadline)}</div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <span class="text-xs ${allDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'} px-2 py-0.5 rounded-full font-medium">${doneCount}/${totalCount} הוגשו</span>
-                  ${!allDone ? `<button onclick="_cancelEvalRequest('${req.id}')" class="text-xs text-red-600 hover:underline">בטל</button>` : ''}
-                </div>
-              </div>
-              <div class="space-y-1 mt-2">
-                ${completion.map((c, i) => `
-                  <div class="text-xs flex items-center gap-2 py-0.5">
-                    <span class="${c.done ? 'text-green-700' : 'text-gray-400'}">${c.done ? '✓' : '○'}</span>
-                    <span class="${c.done ? 'text-gray-700' : 'text-gray-500'}">${escapeHtml(req.evaluatorNames[i] || c.evaluatorId)}</span>
-                    ${c.done ? '<span class="text-xs text-green-600">— הוגש</span>' : '<span class="text-xs text-gray-400">— ממתין</span>'}
+    <div class="grid lg:grid-cols-[1fr_280px] gap-4">
+      <!-- Main column: existing requests -->
+      <div>
+        ${requests.length === 0 ? `
+          <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <div class="text-4xl mb-2">✉</div>
+            <div class="text-sm font-medium text-gray-900 mb-1">אין בקשות פתוחות</div>
+            <div class="text-xs text-gray-500">לחץ/י על "בקשה חדשה" כדי לפתוח את הבקשה הראשונה</div>
+          </div>
+        ` : `
+          <div class="space-y-3">
+            ${requests.map(req => {
+              const completion = _evalRequestCompletionMap(req);
+              const doneCount = completion.filter(c => c.done).length;
+              const totalCount = completion.length;
+              const allDone = doneCount === totalCount;
+              const pastDeadline = req.deadline && req.deadline < today;
+              return `
+                <div class="bg-white rounded-xl border ${allDone ? 'border-green-200 bg-green-50/30' : pastDeadline ? 'border-red-200 bg-red-50/30' : 'border-gray-200'} p-4">
+                  <div class="flex items-start justify-between gap-3 flex-wrap mb-2">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium">${escapeHtml(req.residentName)} · רבעון ${escapeHtml(req.quarterId)}</div>
+                      <div class="text-xs text-gray-500 mt-0.5">תאריך יעד: <strong>${_fmtDateIL(req.deadline)}</strong> · ${fmtRel(req.deadline)}</div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <span class="text-xs ${allDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'} px-2 py-0.5 rounded-full font-medium">${doneCount}/${totalCount} הוגשו</span>
+                      ${!allDone ? `<button onclick="_cancelEvalRequest('${req.id}')" class="text-xs text-red-600 hover:underline">בטל</button>` : ''}
+                    </div>
                   </div>
-                `).join('')}
-              </div>
-              ${req.notes ? `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100"><strong>הערות:</strong> ${escapeHtml(req.notes)}</div>` : ''}
-            </div>
-          `;
-        }).join('')}
+                  <div class="space-y-1 mt-2">
+                    ${completion.map((c, i) => {
+                      const displayName = _resolveEvaluatorName(c.evaluatorId, req.evaluatorNames?.[i]);
+                      const isSelf = c.evaluatorId === req.residentId;
+                      return `
+                        <div class="text-xs flex items-center gap-2 py-0.5">
+                          <span class="${c.done ? 'text-green-700' : 'text-gray-400'}">${c.done ? '✓' : '○'}</span>
+                          <span class="${c.done ? 'text-gray-700' : 'text-gray-500'}">${isSelf ? '📝 ' : ''}${escapeHtml(displayName)}${isSelf ? ' (הערכה עצמית)' : ''}</span>
+                          ${c.done ? '<span class="text-xs text-green-600">— הוגש</span>' : '<span class="text-xs text-gray-400">— ממתין</span>'}
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                  ${req.notes ? `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100"><strong>הערות:</strong> ${escapeHtml(req.notes)}</div>` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
       </div>
-    `}
+
+      <!-- Side panel: residents needing an eval request -->
+      <aside class="bg-white rounded-xl border border-gray-200 p-3 self-start lg:sticky lg:top-3">
+        <div class="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+          <span>👥</span>
+          <span>ממתינים לבקשה</span>
+          <span class="text-gray-400">(${needingEval.length})</span>
+        </div>
+        ${needingEval.length === 0 ? `
+          <div class="text-xs text-gray-400 py-2">לכל המתמחים יש בקשת הערכה פעילה ✓</div>
+        ` : `
+          <div class="space-y-0.5 max-h-[600px] overflow-y-auto">
+            ${needingEval.map(r => {
+              const pgyLabel = ['א','ב','ג','ד','ה','ו'][r.pgy-1] || r.pgy;
+              return `
+                <button onclick="_openEvalRequestModal('${escapeAttr(r.id)}')" class="w-full text-right text-xs py-1.5 px-2 rounded hover:bg-purple-50 hover:text-purple-700 transition flex items-center justify-between gap-2 border-b border-gray-50">
+                  <span class="truncate flex-1">${escapeHtml(r.name)}</span>
+                  <span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded shrink-0">שנה ${pgyLabel}</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        `}
+        <div class="mt-3 pt-2 border-t border-gray-100 text-[10px] text-gray-400 leading-snug">לחיצה תפתח טופס בקשה עם המתמחה מסומן מראש</div>
+      </aside>
+    </div>
   `;
 }
 
-function _openEvalRequestModal() {
+function _openEvalRequestModal(preselectedResidentId) {
   const now = new Date();
   const q = Math.floor(now.getMonth() / 3) + 1;
-  const currentQ = `${now.getFullYear()}-Q${q}`;
-  const defaultDeadline = new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0, 10);
+  // v2.10.19: if an active cycle exists, use its deadline + quarter as defaults
+  let currentQ = `${now.getFullYear()}-Q${q}`;
+  let defaultDeadline = new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0, 10);
+  try {
+    const ac = _getActiveCycle();
+    if (ac) {
+      currentQ = ac.id;
+      if (ac.submissionDeadline) defaultDeadline = ac.submissionDeadline;
+    }
+  } catch (e) { /* ignore */ }
   // List all attendings + chiefs as potential evaluators
   const allAttendings = [...(STAFF.attending || []), ...(STAFF.chief || []), ...(STAFF.pd || [])]
     .filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i); // dedup
@@ -7617,7 +7702,7 @@ function _openEvalRequestModal() {
           <div>
             <label class="text-xs font-medium text-gray-700 mb-1 block">מתמחה</label>
             <select id="er-resident" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
-              ${RESIDENTS.map(r => `<option value="${r.id}|${r.name}">${r.name} (PGY ${r.pgy})</option>`).join('')}
+              ${RESIDENTS.map(r => `<option value="${escapeAttr(r.id)}|${escapeAttr(r.name)}" ${r.id === preselectedResidentId ? 'selected' : ''}>${escapeHtml(r.name)} (PGY ${r.pgy})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -7625,19 +7710,26 @@ function _openEvalRequestModal() {
             <input type="text" id="er-quarter" value="${currentQ}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="YYYY-QN">
           </div>
           <div>
-            <label class="text-xs font-medium text-gray-700 mb-1 block">מעריכים (סמן/י את הרצויים)</label>
+            <label class="flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer py-1 bg-blue-50 border border-blue-200 rounded-lg px-2">
+              <input type="checkbox" id="er-include-self" class="rounded" checked>
+              <span>📝 כלול הערכה עצמית של המתמחה (מומלץ)</span>
+            </label>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">בכירים מעריכים (סמן/י את הרצויים)</label>
             <div class="border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto">
               ${allAttendings.map(a => `
                 <label class="flex items-center gap-2 py-1 text-xs cursor-pointer hover:bg-gray-50 px-1 rounded">
-                  <input type="checkbox" class="er-evaluator rounded" data-id="${a.id}" data-name="${a.name}">
-                  <span>${a.name}</span>
+                  <input type="checkbox" class="er-evaluator rounded" data-id="${escapeAttr(a.id)}" data-name="${escapeAttr(a.name)}">
+                  <span>${escapeHtml(a.name)}</span>
                 </label>
               `).join('')}
             </div>
           </div>
           <div>
-            <label class="text-xs font-medium text-gray-700 mb-1 block">תאריך יעד</label>
+            <label class="text-xs font-medium text-gray-700 mb-1 block">תאריך יעד (DD-MM-YYYY)</label>
             <input type="date" id="er-deadline" value="${defaultDeadline}" min="${now.toISOString().slice(0,10)}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+            <div class="text-xs text-gray-400 mt-1">לאחר תאריך זה: רק בכירים שכבר התחילו משוב יכולים לסיים. בכירים אחרים חסומים.</div>
           </div>
           <div>
             <label class="text-xs font-medium text-gray-700 mb-1 block">הערות (אופציונלי)</label>
@@ -7668,9 +7760,18 @@ function _submitEvalRequest() {
   const deadline = document.getElementById('er-deadline').value;
   const notes = document.getElementById('er-notes').value.trim();
   const evaluatorEls = Array.from(document.querySelectorAll('.er-evaluator:checked'));
-  if (evaluatorEls.length === 0) { showToast('יש לבחור לפחות מעריך אחד', 'error'); return; }
+  const includeSelf = document.getElementById('er-include-self')?.checked !== false;  // v2.10.19: default true
+  if (evaluatorEls.length === 0 && !includeSelf) { showToast('יש לבחור לפחות מעריך אחד (או כלול הערכה עצמית)', 'error'); return; }
   if (!quarterId) { showToast('יש לציין רבעון', 'error'); return; }
   if (!deadline) { showToast('יש לציין תאריך יעד', 'error'); return; }
+
+  // v2.10.19: auto-include resident self-eval at the start of the list (if checked)
+  const evaluatorIds = evaluatorEls.map(e => e.dataset.id);
+  const evaluatorNames = evaluatorEls.map(e => e.dataset.name);
+  if (includeSelf) {
+    evaluatorIds.unshift(residentId);
+    evaluatorNames.unshift(residentName + ' (הערכה עצמית)');
+  }
 
   const req = {
     id: 'req_' + Date.now(),
@@ -7678,8 +7779,9 @@ function _submitEvalRequest() {
     quarterId, residentId, residentName,
     requesterId: currentUser?.id || 'unknown',
     requesterName: currentUser?.name || '',
-    evaluatorIds: evaluatorEls.map(e => e.dataset.id),
-    evaluatorNames: evaluatorEls.map(e => e.dataset.name),
+    evaluatorIds,
+    evaluatorNames,
+    includesSelf: includeSelf,
     deadline, notes,
     createdAt: new Date().toISOString(),
     status: 'open',
@@ -10745,10 +10847,14 @@ function renderDataManagementScreen() {
         <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-xs">
           <div class="font-semibold text-green-900 mb-1">תקופה פעילה: ${escapeHtml(_activeCycle.id)}</div>
           <div class="grid grid-cols-2 gap-2 text-green-800">
-            <div>📅 התחלה: <strong>${escapeHtml(_activeCycle.startDate || '—')}</strong></div>
-            <div>⏰ דדליין הגשה: <strong>${escapeHtml(_activeCycle.submissionDeadline || '—')}</strong></div>
-            <div>🔒 נעילה סופית: <strong>${escapeHtml(_activeCycle.hardLockDate || '—')}</strong></div>
+            <div>📅 התחלה: <strong>${_fmtDateIL(_activeCycle.startDate)}</strong></div>
+            <div>⏰ דדליין הגשה (רך): <strong>${_fmtDateIL(_activeCycle.submissionDeadline)}</strong></div>
+            <div>🔒 נעילה סופית: <strong>${_fmtDateIL(_activeCycle.hardLockDate)}</strong></div>
             <div>👥 משתתפים: <strong>${(_activeCycle.participatingResidents || []).length}</strong></div>
+          </div>
+          <div class="text-[10px] text-green-700 mt-2 pt-2 border-t border-green-200 leading-relaxed">
+            💡 <strong>דדליין רך</strong>: התאריך המבוקש להגשה — לא חוסם פעולה, רק מדגיש איחור.
+            <strong>נעילה סופית</strong>: לאחר תאריך זה, אין יותר עריכות או הגשות חדשות, אפילו על-ידי מי שכבר שמר.
           </div>
         </div>
         <div class="flex gap-2 flex-wrap">
@@ -10766,7 +10872,7 @@ function renderDataManagementScreen() {
               <div class="flex items-center gap-3 text-xs py-1 border-b border-gray-50">
                 <span class="font-medium w-20">${escapeHtml(c.id)}</span>
                 <span class="text-gray-500">${_cycleTypeLabel(c.cycleType).split(' ')[0]}</span>
-                <span class="text-gray-400 flex-1">${escapeHtml(c.submissionDeadline || '—')}</span>
+                <span class="text-gray-400 flex-1">${_fmtDateIL(c.submissionDeadline)}</span>
                 ${_cycleStatusBadge(c)}
               </div>
             `).join('')}
