@@ -302,10 +302,13 @@
     <section id="screen-pd-dashboard" class="screen">
       <!-- v2.10.15: removed "Open Macro Quarter" button + dead quarter dropdown.
            Cycle management now lives in ניהול נתונים → ניהול תקופות הערכה. -->
-      <div class="mb-5">
+      <div class="mb-4">
         <h1 class="text-lg font-semibold">דשבורד מחלקתי</h1>
         <p class="text-xs text-gray-500 mt-0.5"><span id="resident-count-sub"></span> · <span id="dashboard-date"></span> · <span id="cycle-strip" class="text-gray-700"></span></p>
       </div>
+
+      <!-- v2.10.18: Inbox — actionable items computed from current state -->
+      <div id="pd-inbox" class="mb-4"></div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <div class="bg-gray-50 rounded-lg p-3">
@@ -690,9 +693,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.17-dev';
+const APP_VERSION = '2.10.18-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.17: רוסטר Excel הוכנס לקוד המקור. STAFF.attending +13 רופאים חדשים. RESIDENTS_RAW +1 (עדי אלתר). RESIDENT_EMAILS הורחב עם כל המיילים מהאקסל. תיקון טייפו: y_abbout → y_abboud. תפקיד chief: 'מתמחה אחראי/ת · בוגרי שלב ב\\''.";
+const APP_VERSION_NOTES = "v2.10.18: דשבורד PD — Inbox widget בראש המסך. עד 5 פעולות דרושות ממוינות לפי דחיפות: תקופה לא פתוחה / דדליין מתקרב / סיכומים ממתינים לאישור / בקשות פגו / מתמחים 30+ ימים ללא הערכה. אריחי KPI נשארים מתחת.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3196,9 +3199,172 @@ function buildAll() {
 let pdCharts = {};
 let activePgyFilter = 'all';
 
+// v2.10.18: compute actionable inbox items for the PD/coordinator dashboard
+// Each item: { icon, title, sub, action, color, urgency }. Sorted by urgency desc.
+function _computePdInbox() {
+  const items = [];
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  // ── No active cycle (top priority) ──
+  let activeCycle = null;
+  try { activeCycle = _getActiveCycle(); } catch (e) { /* helper not yet loaded */ }
+  if (!activeCycle) {
+    items.push({
+      urgency: 100,
+      icon: '📅', color: 'amber',
+      title: 'טרם נפתחה תקופת הערכה',
+      sub: 'מומלץ לפתוח את הרבעון הנוכחי כדי שמתמחים ובכירים ידעו את היעד',
+      action: { label: 'פתח תקופה ←', onclick: "navigateTo('pd-data')" }
+    });
+  } else {
+    // Submission deadline approaching (≤7 days)
+    let days = null;
+    try { days = _daysToSubmissionDeadline(); } catch (e) {}
+    if (days !== null && days >= 0 && days <= 7) {
+      items.push({
+        urgency: 90,
+        icon: '⏰', color: 'amber',
+        title: `דדליין ההגשה מתקרב — ${days === 0 ? 'היום!' : days + ' ימים נותרו'}`,
+        sub: `תקופה ${activeCycle.id} · יעד ${activeCycle.submissionDeadline}`,
+        action: { label: 'נהל ←', onclick: "navigateTo('pd-data')" }
+      });
+    } else if (days !== null && days < 0) {
+      items.push({
+        urgency: 95,
+        icon: '🚨', color: 'red',
+        title: `דדליין ההגשה פג לפני ${Math.abs(days)} ימים`,
+        sub: `תקופה ${activeCycle.id} · יעד ${activeCycle.submissionDeadline} · נעילה סופית: ${activeCycle.hardLockDate || '—'}`,
+        action: { label: 'בדוק מצב ←', onclick: "navigateTo('pd-data')" }
+      });
+    }
+  }
+
+  // ── Macro summaries pending PD approval ──
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed];
+    const cycleId = activeCycle?.id;
+    const myUserId = currentUser?.id;
+    // For each (resident, quarter) pair where a 'final' exists but no 'pd_approved' exists
+    const pairs = new Map();
+    all.forEach(h => {
+      if (h.type !== 'macro' || h.subType === 'draft') return;
+      const key = `${h.residentId}__${h.quarterId}`;
+      const existing = pairs.get(key) || { hasFinal: false, hasApproved: false, residentName: '', daysOldest: 0, qid: h.quarterId };
+      if (h.subType === 'final') {
+        existing.hasFinal = true;
+        existing.residentName = h.residentName || existing.residentName;
+        const days = Math.floor((Date.now() - new Date(h.timestamp || h.date || 0).getTime()) / (24*60*60*1000));
+        if (days > existing.daysOldest) existing.daysOldest = days;
+      }
+      if (h.subType === 'pd_approved') existing.hasApproved = true;
+      pairs.set(key, existing);
+    });
+    const pending = Array.from(pairs.values()).filter(p => p.hasFinal && !p.hasApproved);
+    if (pending.length > 0) {
+      // Find oldest waiting
+      const oldest = pending.sort((a, b) => b.daysOldest - a.daysOldest)[0];
+      const urgency = oldest.daysOldest > 14 ? 88 : oldest.daysOldest > 7 ? 75 : 60;
+      items.push({
+        urgency,
+        icon: '📝', color: oldest.daysOldest > 7 ? 'amber' : 'purple',
+        title: `${pending.length} ${pending.length === 1 ? 'סיכום' : 'סיכומים'} ממתינים לאישור שלך`,
+        sub: oldest.daysOldest > 0 ? `הוותיק ביותר: ${(oldest.residentName || '?').replace(/^ד"ר\s+/, '')} · לפני ${oldest.daysOldest} ימים` : 'הוגשו לאחרונה',
+        action: { label: 'פתח אריחים ←', onclick: "navigateTo('pd-macro')" }
+      });
+    }
+  } catch (e) { console.warn('inbox pending macros', e); }
+
+  // ── Open eval-requests past deadline ──
+  try {
+    const reqs = _getEvalRequests().filter(r => r.status === 'open');
+    const overdue = reqs.filter(r => r.deadline && r.deadline < todayIso);
+    if (overdue.length > 0) {
+      items.push({
+        urgency: 80,
+        icon: '🚨', color: 'red',
+        title: `${overdue.length} ${overdue.length === 1 ? 'בקשת הערכה פגה' : 'בקשות הערכה פגו'}`,
+        sub: 'דדליין עבר. שקול/י שליחת תזכורת או הארכת דדליין.',
+        action: { label: 'פתח בקשות ←', onclick: "navigateTo('eval-requests')" }
+      });
+    }
+  } catch (e) { /* ignore */ }
+
+  // ── Residents idle 30+ days without any eval ──
+  try {
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+    const all = [..._getLocalHistory(), ...seed].filter(h => h.subType !== 'draft');
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const idleResidents = RESIDENTS.filter(r => {
+      const rEvals = all.filter(h => h.residentId === r.id);
+      if (rEvals.length === 0) return true; // no evals at all
+      const lastTs = Math.max(...rEvals.map(h => new Date(h.timestamp || h.date || 0).getTime()));
+      return lastTs < thirtyDaysAgo;
+    });
+    if (idleResidents.length > 0) {
+      const names = idleResidents.slice(0, 3).map(r => r.name.split(' ')[0]).join(', ');
+      const more = idleResidents.length > 3 ? ` +${idleResidents.length - 3}` : '';
+      items.push({
+        urgency: 50,
+        icon: '😴', color: 'amber',
+        title: `${idleResidents.length} ${idleResidents.length === 1 ? 'מתמחה' : 'מתמחים'} מעל 30 ימים ללא הערכה`,
+        sub: `${names}${more}`,
+        action: { label: 'שלח בקשה ←', onclick: "navigateTo('eval-requests')" }
+      });
+    }
+  } catch (e) { /* ignore */ }
+
+  return items.sort((a, b) => b.urgency - a.urgency).slice(0, 5);
+}
+
+function _renderPdInbox() {
+  const el = document.getElementById('pd-inbox');
+  if (!el) return;
+  const items = _computePdInbox();
+  if (items.length === 0) {
+    el.innerHTML = `
+      <div class="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+        <span class="text-2xl">✓</span>
+        <div>
+          <div class="text-sm font-semibold text-green-900">אין פעולות דחופות כעת</div>
+          <div class="text-xs text-green-700 mt-0.5">כל מה שדורש את תשומת לבך — סגור. תהנה/י משקט!</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  // Render up to 5 cards
+  el.innerHTML = `
+    <div class="bg-white rounded-xl border-2 border-amber-200 p-3 shadow-sm">
+      <div class="flex items-center gap-2 mb-2 px-1">
+        <span class="text-base">📥</span>
+        <span class="text-sm font-semibold text-gray-900">דורש את תשומת לבך</span>
+        <span class="text-xs text-gray-500">(${items.length})</span>
+      </div>
+      <div class="space-y-1.5">
+        ${items.map(it => `
+          <div class="flex items-center gap-3 p-2.5 rounded-lg hover:bg-${it.color}-50 transition border border-transparent hover:border-${it.color}-200">
+            <div class="w-9 h-9 rounded-full bg-${it.color}-100 text-${it.color}-700 flex items-center justify-center text-base shrink-0">${it.icon}</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-gray-900">${escapeHtml(it.title)}</div>
+              <div class="text-xs text-gray-500 mt-0.5">${escapeHtml(it.sub)}</div>
+            </div>
+            <button onclick="${it.action.onclick}" class="text-xs bg-${it.color}-600 text-white px-3 py-1.5 rounded-lg hover:bg-${it.color}-700 shrink-0">${escapeHtml(it.action.label)}</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderPdDashboard() {
   document.getElementById('kpi-total').textContent = RESIDENTS.length;
   document.getElementById('resident-count-sub').textContent = `${RESIDENTS.length} מתמחים פעילים`;
+
+  // v2.10.18: render the actionable inbox first
+  try { _renderPdInbox(); } catch (e) { console.warn('inbox render error', e); }
+
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
 
