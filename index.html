@@ -690,9 +690,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.15';
+const APP_VERSION = '2.10.17';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.15: Cycle Configurator. ניהול תקופות הערכה בעורף הניהול (פתיחה, סגירה, ארכוב, עריכה). Q2/Q4 default=major, Q1/Q3=checkpoint. Hard lock = soft deadline +7 ימים. Dashboard מציג cycle strip + הוסר כפתור הפתיחה והdropdown המת.";
+const APP_VERSION_NOTES = "v2.10.17: רוסטר Excel הוכנס לקוד המקור. STAFF.attending +13 רופאים חדשים. RESIDENTS_RAW +1 (עדי אלתר). RESIDENT_EMAILS הורחב עם כל המיילים מהאקסל. תיקון טייפו: y_abbout → y_abboud. תפקיד chief: 'מתמחה אחראי/ת · בוגרי שלב ב\\''.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2300,6 +2300,8 @@ const RESIDENTS_RAW = [
   {name:'יעל וולף',start:'2025-11'},{name:'שרון שרייבר',start:'2026-02'},
   {name:'נופר ברמן',start:'2026-02'},{name:'נועה לי זקס',start:'2026-05'},
   {name:'ניב ולר',start:'2026-07'},{name:'זינאט עוואד',start:'2026-07'},
+  // v2.10.17: Excel roster — 1 new resident (default start: 2025-09, refine via UI)
+  {name:'עדי אלתר',start:'2025-09'},
 ];
 
 function calcPGY(start) {
@@ -2325,6 +2327,15 @@ const PILOT_PGY_RANGE = [1, 2]; // expand later
 // Populated after login by loadAllUsers() (see Feature G handlers).
 // ───────────────────────────────────────────────────────────────────
 let DYNAMIC_USERS = [];   // Dynamic users (added via UI) — kept for backward compat
+// v2.10.16: localStorage key for dev-mode dynamic users (no backend)
+const DYNAMIC_USERS_KEY = 'cbme_dynamic_users';
+function _loadDynamicUsersFromLocal() {
+  try { return JSON.parse(localStorage.getItem(DYNAMIC_USERS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function _saveDynamicUsersToLocal(arr) {
+  return safeSetItem(DYNAMIC_USERS_KEY, JSON.stringify(arr));
+}
 let ALL_USERS_STATE = []; // Full state from list_all_users — includes archive flags
 
 // v2.6.0: RESIDENTS is `let` so it can be rebuilt after archive/restore.
@@ -2412,17 +2423,31 @@ const STAFF = {
     // v2.10.3: coord-cuzin removed — Cuzin is now in STAFF.pd
   ],
   attending: [
-    { id: 'a-avrahami',  name: 'ד"ר רוני אברהמי',  initials: 'רא', email: 'r_avrahami@rambam.health.gov.il' },
-    { id: 'a-argaz',     name: 'ד"ר אודי ארגז',    initials: 'אא', email: 'u_ergaz@rambam.health.gov.il' },
-    { id: 'a-tsipori',   name: 'ד"ר יניב ציפורי',   initials: 'יצ', email: 'Y_ZIPORI@rambam.health.gov.il' },
-    { id: 'a-shulman',   name: 'פרופ\' עידו שולט',  initials: 'עש', email: 'i_solt@rambam.health.gov.il' },
+    { id: 'a-avrahami',   name: 'ד"ר רוני אברהמי',     initials: 'רא', email: 'r_avrahami@rambam.health.gov.il' },
+    { id: 'a-argaz',      name: 'ד"ר אודי ארגז',       initials: 'אא', email: 'u_ergaz@rambam.health.gov.il' },
+    { id: 'a-tsipori',    name: 'ד"ר יניב ציפורי',     initials: 'יצ', email: 'y_zipori@rambam.health.gov.il' },
+    { id: 'a-shulman',    name: 'פרופ\' עידו שולט',    initials: 'עש', email: 'i_solt@rambam.health.gov.il' },
     // v2.10.3: a-shahak removed — Shahak is now in STAFF.pd
     // v2.10.0: a-iluz removed — duplicate of pd-iluz. PD can still evaluate via attending-macro/micro screens (NAV_BY_ROLE.pd includes them).
-    { id: 'a-ginsberg',  name: 'ד"ר יובל גינסברג', initials: 'יג', email: 'y_ginsberg@rambam.health.gov.il' },
+    { id: 'a-ginsberg',   name: 'ד"ר יובל גינסברג',    initials: 'יג', email: 'y_ginsberg@rambam.health.gov.il' },
     // v2.10.0: a-mor removed — duplicate of pd-mor. Same reasoning.
-    { id: 'a-ganaim',    name: 'ד"ר אימאן גנאים',  initials: 'אג', email: 'E_ganayem@rambam.health.gov.il' },
-    { id: 'a-tsur',      name: 'ד"ר ליליה צור',    initials: 'לצ', note: 'בכירה צעירה', email: 'l_tzur@rambam.health.gov.il' },
-    { id: 'a-aboud',     name: 'ד"ר יוסף עבוד',    initials: 'יע', note: 'בכיר צעיר', email: 'y_abbout@rambam.health.gov.il' },
+    { id: 'a-ganaim',     name: 'ד"ר אימאן גנאים',     initials: 'אג', email: 'e_ganayem@rambam.health.gov.il' },
+    { id: 'a-tsur',       name: 'ד"ר ליליה צור',       initials: 'לצ', note: 'בכירה צעירה', email: 'l_tzur@rambam.health.gov.il' },
+    { id: 'a-aboud',      name: 'ד"ר יוסף עבוד',       initials: 'יע', note: 'בכיר צעיר', email: 'y_abboud@rambam.health.gov.il' },
+    // v2.10.17: Excel roster — 13 new attendings (13.5.26)
+    { id: 'a-bachar',     name: 'ד"ר גל בכר',          initials: 'גב', email: 'g_bachar@rambam.health.gov.il' },
+    { id: 'a-filmer',     name: 'ד"ר גלעד פילמר',      initials: 'גפ', email: 'g_filmer@rambam.health.gov.il' },
+    { id: 'a-fedorkova',  name: 'ד"ר יוליה קול',       initials: 'יק', email: 'y_fedorkova@rambam.health.gov.il' },
+    { id: 'a-hagag',      name: 'ד"ר ערין חג\'אג\'',   initials: 'עח', email: 'a_hagag@rambam.health.gov.il' },
+    { id: 'a-matanes',    name: 'ד"ר עימאד מטאנס',     initials: 'עמ', email: 'e_matanes@rambam.health.gov.il' },
+    { id: 'a-farago',     name: 'ד"ר נעמה פרגו',       initials: 'נפ', email: 'n_farago@rambam.health.gov.il' },
+    { id: 'a-khatib',     name: 'ד"ר ניזאר חטיב',      initials: 'נח', email: 'n_khatib@rambam.health.gov.il' },
+    { id: 'a-fainaru',    name: 'ד"ר עופר פאינרו',     initials: 'עפ', email: 'o_fainaru@rambam.health.gov.il' },
+    { id: 'a-beloosesky', name: 'ד"ר רון בלוססקי',     initials: 'רב', email: 'r_beloosesky@rambam.health.gov.il' },
+    { id: 'a-paz',        name: 'ד"ר יורי פז',         initials: 'יפ', email: 'u_paz@rambam.health.gov.il' },
+    { id: 'a-millo',      name: 'ד"ר צביקה מילוא',     initials: 'צמ', email: 'z_millo@rambam.health.gov.il' },
+    { id: 'a-linder',     name: 'ד"ר רויטל לינדר',     initials: 'רל', email: 'r_linder@rambam.health.gov.il' },
+    { id: 'a-haya',       name: 'ד"ר ניר חיא',         initials: 'נח', email: 'n_haya@rambam.health.gov.il' },
   ],
   chief: [
     { id: 'c-aburas',     name: 'ד"ר היבא אבו ראס',  initials: 'הא', email: 'H_ABURASS@rambam.health.gov.il' },
@@ -2434,19 +2459,38 @@ const STAFF = {
 };
 
 // Pilot resident email map — keyed by app-name (matches RESIDENTS_RAW.name)
+// v2.10.17: expanded with Excel roster — all residents now have emails
 const RESIDENT_EMAILS = {
-  'רן דוגמן':      'dr.iluz.roee@gmail.com',  // ★ DEMO RESIDENT
-  'נועה פרישמן':   'n_frishmanmartsiano@rambam.health.gov.il',
-  'מריה הלון':     'm_halon@rambam.health.gov.il',
-  'בר ראש':        'B_ROSH@rambam.health.gov.il',
-  'עידן שמאי':     'i_shamay@rambam.health.gov.il',
-  'איריס שפירא':   'i_shapirobratt@rambam.health.gov.il',
-  'גילי זאבי-רוח': 'GI_ZEEVI@rambam.health.gov.il',
-  'נועם כץ-לינדר': 'n_katz@rambam.health.gov.il',
-  'אלון גימון':    'a_gimmon@rambam.health.gov.il',
-  'יעל וולף':      'y_wolf@rambam.health.gov.il',
-  'שרון שרייבר':   'sh_shreiber@rambam.health.gov.il',
-  'נופר ברמן':     'N_BERMAN@rambam.health.gov.il',
+  'רן דוגמן':         'dr.iluz.roee@gmail.com',  // ★ DEMO RESIDENT
+  // Existing residents — emails from prior versions
+  'נועה פרישמן':      'n_frishmanmartsiano@rambam.health.gov.il',
+  'מריה הלון':        'm_halon@rambam.health.gov.il',
+  'בר ראש':           'b_rosh@rambam.health.gov.il',
+  'עידן שמאי':        'i_shamay@rambam.health.gov.il',
+  'איריס שפירא':      'i_shapirobratt@rambam.health.gov.il',
+  'גילי זאבי-רוח':    'gi_zeevi@rambam.health.gov.il',
+  'נועם כץ-לינדר':    'n_katz@rambam.health.gov.il',
+  'אלון גימון':       'a_gimmon@rambam.health.gov.il',
+  'יעל וולף':         'y_wolf@rambam.health.gov.il',
+  'שרון שרייבר':      'sh_shreiber@rambam.health.gov.il',
+  'נופר ברמן':        'n_berman@rambam.health.gov.il',
+  // v2.10.17: emails added from Excel for residents previously missing them
+  'רועי גולדפריינד':  'r_gf@rambam.health.gov.il',
+  'אפרת ליבוביץ':     'e_leibowitz@rambam.health.gov.il',
+  'אמיר וולפוביץ':    'a_wolfovitz@rambam.health.gov.il',
+  'נמרוד לוברמן':     'n_loberman@rambam.health.gov.il',
+  'היבא אבו ראס':     'h_aburass@rambam.health.gov.il',
+  'גילי בוחניק':      'g_buchnikfater@rambam.health.gov.il',
+  'ניירוז נגמי':      'n_najami@rambam.health.gov.il',
+  'מאיה לנדאו':       'ma_levin@rambam.health.gov.il',
+  'יוליה קול':        'y_fedorkova@rambam.health.gov.il',
+  'דבורה אמסלם':      'd_amselem@rambam.health.gov.il',
+  'נירה גרידיש':      'n_gridish@rambam.health.gov.il',
+  'דליה ג׳בארין':     'd_jabarin@rambam.health.gov.il',
+  'נועה לי זקס':      'n_sachs@rambam.health.gov.il',
+  'ניב ולר':          'n_waller@rambam.health.gov.il',
+  // v2.10.17: new resident from Excel
+  'עדי אלתר':         'a_alter@rambam.health.gov.il',
 };
 
 function getResidentEmail(residentName) {
@@ -2555,7 +2599,7 @@ const ROLES = [
   { id: 'pd',          label: 'מנהל/ת תוכנית',     name: '—', color: 'purple', icon: '—' },
   { id: 'coordinator', label: 'רכזת תוכנית התמחות', name: '—', color: 'pink',   icon: '—' },
   { id: 'attending',   label: 'רופא/ת בכיר/ה',     name: '—', color: 'blue',   icon: '—' },
-  { id: 'chief',       label: 'מתמחה אחראי/ת',     name: '—', color: 'orange', icon: '—' },
+  { id: 'chief',       label: 'מתמחה אחראי/ת · בוגרי שלב ב\'',  name: '—', color: 'orange', icon: '—' },
   { id: 'resident',    label: 'מתמחה',             name: '—', color: 'teal',   icon: '—' },
 ];
 
@@ -11521,6 +11565,46 @@ async function submitAddUser() {
   btn.disabled = true;
   btn.textContent = 'שולח...';
 
+  // v2.10.16: dev-mode handler — save locally to DYNAMIC_USERS + localStorage when no backend
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    try {
+      // Block exact-duplicate emails (case-insensitive)
+      const norm = email.toLowerCase();
+      const exists = DYNAMIC_USERS.some(u => (u.email || '').toLowerCase() === norm) ||
+                     (typeof STAFF !== 'undefined' && ['pd','coordinator','attending','chief'].some(r => (STAFF[r] || []).some(s => (s.email || '').toLowerCase() === norm))) ||
+                     (typeof RESIDENT_EMAILS !== 'undefined' && Object.values(RESIDENT_EMAILS).some(e => (e || '').toLowerCase() === norm));
+      if (exists) {
+        errorEl.textContent = 'משתמש עם המייל הזה כבר קיים במערכת';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false; btn.textContent = 'הוסף ✓';
+        return;
+      }
+      // Generate id from email's local part + random suffix
+      const localPart = email.split('@')[0].replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+      const id = `dyn_${role}_${localPart}_${Date.now().toString(36).slice(-4)}`;
+      const initials = (name || '').replace(/^ד"ר\s+|פרופ'\s+/, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('');
+      const newUser = { id, name, email, role, initials, isDynamic: true, addedAt: new Date().toISOString(), addedBy: currentUser?.id || null };
+      if (role === 'resident' && start) newUser.start = start;
+      DYNAMIC_USERS.push(newUser);
+      _saveDynamicUsersToLocal(DYNAMIC_USERS);
+      // Also push to ALL_USERS_STATE for the staff list rendering
+      ALL_USERS_STATE.push({ ...newUser });
+      // Trigger RESIDENTS rebuild if a resident was added
+      if (role === 'resident' && typeof rebuildResidents === 'function') rebuildResidents();
+      logToAudit('add_user_dev', { id, email, role });
+      showToast(`✅ ${name} נוסף/ה בהצלחה (dev mode)`, 'success');
+      document.getElementById('add-user-modal')?.remove();
+      if (currentScreen === 'pd-data') renderDataManagementScreen();
+      return;
+    } catch (e) {
+      console.error('dev add_user failed:', e);
+      errorEl.textContent = 'שגיאה בהוספה מקומית: ' + e.message;
+      errorEl.classList.remove('hidden');
+      btn.disabled = false; btn.textContent = 'הוסף ✓';
+      return;
+    }
+  }
+
   const result = await callBackendAction('add_user', user);
   if (result.success) {
     const emailStatus = sendWelcomeEmail
@@ -11590,6 +11674,19 @@ async function callBackendAction(action, data) {
 }
 
 async function loadDynamicUsers() {
+  // v2.10.16: dev-mode — load from localStorage (no backend call)
+  if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
+    DYNAMIC_USERS = _loadDynamicUsersFromLocal();
+    // ALL_USERS_STATE: merge dynamic into existing static list (read once at boot)
+    // Add dynamic that aren't already present
+    DYNAMIC_USERS.forEach(du => {
+      if (!ALL_USERS_STATE.some(u => u.id === du.id)) ALL_USERS_STATE.push({ ...du });
+    });
+    if (typeof rebuildResidents === 'function') rebuildResidents();
+    if (typeof renderScreen === 'function') renderScreen();
+    return;
+  }
+
   const result = await callBackendAction('list_dynamic_users', {});
   // Backend _ok() wraps payload in .data, callBackendAction wraps response in .data
   // So users are at result.data.data.users (double data nesting)
