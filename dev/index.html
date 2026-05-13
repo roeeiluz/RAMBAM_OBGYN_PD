@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.26-dev';
+const APP_VERSION = '2.10.27-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.26 (Phase 2/4): Custom Report Builder — wizard 4 שלבים בpd-reports. 4 מצבים: יחיד / קוהורט / בכירים / השוואה. פילטרים: מתמחים, טווח תאריכים, סוגי הערכה, סקציות. אופציית אנונימיזציה (לחקר). ייצוא: HTML / Markdown / CSV. משתמש ב-_collectResidentDossier() כיוסד מרכזי.";
+const APP_VERSION_NOTES = "v2.10.27 (Phase 3/4): AI Engine v2 — מנוע תובנות מבוסס dossier. 7 קטגוריות שאלה (procedure_feedback / standing / competency_deep / attending_patterns / department_status / resident_lookup / general). מנותב לפי תפקיד: מתמחה→נתונים אישיים בלבד + השוואת peer אנונימית; PD/רכזת→נתוני מחלקה מלאים; בכיר→דפוסי משוב משלו. הצעות AI מותאמות לתפקיד. Privacy gate: ללא חשיפת שמות/מספרים של מתמחים אחרים למתמחה.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -6314,54 +6314,42 @@ async function submitSelfMicro() {
 // ═══════════════════════════════════════════════════════════════════
 const AI_SUGGESTIONS = {
   resident: [
-    // ── שאילתות פדגוגיות (חדשות ב-v2.5.0) ──
-    { q: 'מה נקודות החוזק והחולשה שלי לפי 6 הקומפטנציות?',
-      cat: 'קומפטנציות', icon: '⚖️' },
-    { q: 'איך אני בונה תוכנית אישית (PDP) לפי הציונים שלי?',
-      cat: 'PDP', icon: '🎯' },
+    // v2.10.27: queries routed through dossier-backed engine
+    { q: 'איזה משובים קיבלתי בתחום הניתוחים?',
+      cat: 'משובים לפי תחום', icon: '✂️' },
+    { q: 'איזה משובים קיבלתי על חדר לידה?',
+      cat: 'משובים לפי תחום', icon: '👶' },
+    { q: 'איפה אני יחסית לשנתון שלי?',
+      cat: 'מיקום יחסי', icon: '📍' },
+    { q: 'מה המצב שלי בתקשורת?',
+      cat: 'קומפטנציה', icon: '💬' },
+    { q: 'מה המצב שלי במקצועיות?',
+      cat: 'קומפטנציה', icon: '⚖️' },
     { q: 'איפה הפער הגדול ביותר בין הערכה עצמית להערכת בכירים?',
-      cat: 'self-vs-mentor', icon: '⚖️' },
-    { q: 'איך אני משפר את הציון שלי בקומפטנציה הנמוכה ביותר?',
-      cat: 'שיפור', icon: '📈' },
-    
-    // ── שאילתות פעולות (קיימות) ──
+      cat: 'מודעות עצמית', icon: '🪞' },
     { q: 'אילו פעולות עוד חסרות לי כדי להשלים את הסילבוס?',
       cat: 'פעולות', icon: '⊞' },
-    { q: 'באילו קטגוריות פעולה אני הכי חזק/ה?',
-      cat: 'פעולות', icon: '✓' },
-    
-    // ── שאילתות מבחנים (קיימות) ──
     { q: 'מה המגמה בציוני המבחנים שלי?',
       cat: 'מבחנים', icon: '📈' },
-    { q: 'איך הציון האחרון שלי במבחן יחסית לממוצע המחלקתי?',
-      cat: 'מבחנים', icon: '⚖️' },
-    
-    // ── שאילתות הכוונה למסכים (חדש) ──
-    { q: 'איך אני משנה את ההגדרות שלי במערכת? (התראות מייל, ערכת נושא)',
-      cat: 'הכוונה', icon: '⚙' },
-    { q: 'איפה אני קורא הסבר על EPA, ACGME, ו-CBME?',
-      cat: 'הכוונה', icon: '📖' },
   ],
   pd: [
-    // ── שאילתות פדגוגיות מחלקתיות (חדשות ב-v2.5.0) ──
-    { q: 'אילו מתמחים מציגים over-confidence — צריכים שיחה?',
-      cat: 'התערבות', icon: '⚖️' },
-    { q: 'אילו מתמחים מתחת לרמה הצפויה ל-PGY שלהם — מועמדים ל-PIP?',
-      cat: 'התערבות', icon: '🚩' },
-    { q: 'מהי הקומפטנציה החלשה ביותר במחלקה השנה?',
-      cat: 'cohort', icon: '📊' },
-    { q: 'איך אני מנסח/ת פידבק קונסטרוקטיבי למתמחה עם פערים?',
-      cat: 'פדגוגיה', icon: '💬' },
-    
-    // ── שאילתות קיימות ──
+    // v2.10.27: PD queries — full access, routed through dossier engine
+    { q: 'מה סטטוס המחלקה עכשיו?',
+      cat: 'סטטוס מחלקה', icon: '📊' },
+    { q: 'אילו בכירים נותנים הכי הרבה משובים?',
+      cat: 'דפוסי בכירים', icon: '👥' },
+    { q: 'מה הפעילות של ד"ר רוני אברהמי?',
+      cat: 'דפוסי בכירים', icon: '🔍' },
+    { q: 'איך המצב של רן דוגמן?',
+      cat: 'מתמחה ספציפי', icon: '👤' },
+    { q: 'אילו מתמחים מסומנים בליווי קרוב?',
+      cat: 'דגלים', icon: '🚩' },
+    { q: 'אילו מתמחים מוכנים לפגישת סיכום?',
+      cat: 'פעולות', icon: '🤝' },
     { q: 'אילו קטגוריות פעולה הן הבעיה הכי שכיחה במחלקה?',
       cat: 'פעולות', icon: '⊞' },
     { q: 'מה המגמה בממוצע המחלקתי במבחנים התקופתיים?',
       cat: 'מבחנים', icon: '📈' },
-    { q: 'אילו מתמחים נכשלו במבחן האחרון?',
-      cat: 'דגלים', icon: '🚩' },
-    { q: 'אילו מתמחים מאחרים בהשלמת קיסריים?',
-      cat: 'פעולות', icon: '🏥' },
     { q: 'מי המתמחים עם הביצועים הטובים ביותר ב-PGY 1+2?',
       cat: 'מגמות', icon: '⭐' },
   ],
@@ -14788,7 +14776,237 @@ ${JSON.stringify(knowledgePackage, null, 2)}
 }
 
 // Public entry — combines deterministic + optional LLM, used by AI screen
+// ═══════════════════════════════════════════════════════════════════
+// v2.10.27: AI Engine v2 — role-aware data analysis with privacy gate
+// Routes queries through pattern matchers → dossier-backed responses.
+// Falls back to existing LLM/deterministic analysis for unhandled queries.
+// PRIVACY: enforces 3 access tiers (resident=own only, attending=evaluated only,
+// PD/coord=all). For resident scope, strips other-resident numerical data.
+// ═══════════════════════════════════════════════════════════════════
+
+// Categorize a free-text query into one of our handler patterns
+function _aiCategorizeQuery(q) {
+  const lower = q.toLowerCase();
+  // Procedure feedback: "what feedback on surgeries?", "באיזה תחום קיבלתי משובים?"
+  if (/(משוב|פידבק|הערכ|feedback).*(ניתוח|לפרוסקו|קיסר|לידה|מיון|תורנות|פעולות|אירוע|תחום)/.test(q) ||
+      /(ניתוח|לפרוסקו|קיסר|לידה|מיון|תורנות).*(משוב|פידבק|הערות)/.test(q)) return 'procedure_feedback';
+  // Standing/position: "where do I stand?", "מה המיקום שלי", "איפה אני יחסית"
+  if (/(מיקום|איפה אני|איך אני|מתחת לממוצע|מעל הממוצע|ביחס ל|standing|where do I stand)/.test(lower)) return 'standing';
+  // Competency deep-dive: "communication", "תקשורת", "מקצועיות"
+  if (/(תקשורת|מקצועיות|טיפול|מערכת|למידה|ידע|competency|קומפטנציה)/.test(lower)) return 'competency_deep';
+  // Attending patterns (PD-only)
+  if (/(בכיר|מנחה|attending|כותב.*משוב|נותן.*ציון|consistency)/.test(lower)) return 'attending_patterns';
+  // Trends: "מגמה", "השוואה", "השתפרתי", "ירידה"
+  if (/(מגמה|שיפור|ירידה|השוואה|לאורך זמן|trend|תקופה|רבעון)/.test(lower)) return 'trends';
+  // Department-wide: "מי בסיכון", "כמה מתמחים"
+  if (/(מי בסיכון|מי דורש|כמה מתמחים|רשימה|מי לא הוערך|missing|behind)/.test(lower)) return 'department_status';
+  // Resident-specific lookup (PD asking about someone)
+  if (/(ספציפי|של\s\S+|דוח על|תיק של|פרופיל)/.test(lower)) return 'resident_lookup';
+  return 'general';
+}
+
+// Build a per-role response based on the categorized query
+function _aiAnswerFromDossier(query, category, role, residentId) {
+  const lines = [];
+  const myDossier = (role === 'resident' && residentId) ? _collectResidentDossier(residentId) : null;
+
+  if (category === 'procedure_feedback' && myDossier) {
+    // Resident asking about their own feedback by procedure category
+    const cats = myDossier.micros.byCategory;
+    if (Object.keys(cats).length === 0) {
+      lines.push('עדיין לא קיבלת משובים מהירים בתקופה הנוכחית, או שהמשובים אינם מסווגים לקטגוריה.');
+    } else {
+      lines.push(`### משובים שקיבלת לפי תחום (תקופה נוכחית)`);
+      lines.push('');
+      Object.entries(cats).forEach(([key, info]) => {
+        lines.push(`**${info.categoryLabel}** — ${info.count} משובים${info.avgScore !== null ? ` · EPA ממוצע ${info.avgScore}` : ''}`);
+        if (info.comments.length > 0) {
+          info.comments.slice(0, 3).forEach(c => {
+            lines.push(`> ${c.text.trim()}${c.evaluator ? ` _(${c.evaluator})_` : ''}`);
+          });
+        }
+        lines.push('');
+      });
+    }
+    return { ok: true, text: lines.join('\n'), category };
+  }
+
+  if (category === 'standing' && myDossier) {
+    // Position relative to peers — WITHOUT exposing peer specifics
+    lines.push(`### מיקום יחסי שלך — תקופה נוכחית`);
+    lines.push('');
+    // Collect peer averages anonymously
+    const peers = RESIDENTS.filter(r => r.pgy === myDossier.resident.pgy && r.id !== residentId);
+    if (peers.length === 0) {
+      lines.push('אתה היחיד/ה בשנתון שלך — אין השוואה אפשרית.');
+      return { ok: true, text: lines.join('\n'), category };
+    }
+    // Compare competencies
+    const myComps = Object.values(myDossier.macro.competencies).filter(c => c.attendingAvg !== null);
+    if (myComps.length === 0) {
+      lines.push('עדיין אין מספיק הערכות תקופתיות בתקופה הנוכחית כדי לחשב מיקום.');
+    } else {
+      const peerDossiers = peers.map(p => _collectResidentDossier(p.id)).filter(Boolean);
+      myComps.forEach(myC => {
+        const peerVals = peerDossiers.flatMap(pd => {
+          const pc = pd.macro.competencies[myC.key];
+          return pc?.attendingAvg !== null && pc?.attendingAvg !== undefined ? [pc.attendingAvg] : [];
+        });
+        if (peerVals.length === 0) {
+          lines.push(`- **${myC.label}**: הציון שלך ${myC.attendingAvg}/5 (אין מספיק נתוני שנתון להשוואה)`);
+        } else {
+          const peerAvg = peerVals.reduce((a, b) => a + b, 0) / peerVals.length;
+          const rank = peerVals.filter(v => v < myC.attendingAvg).length + 1;
+          const total = peerVals.length + 1;
+          let label = '';
+          if (myC.attendingAvg > peerAvg + 0.3) label = '🟢 מעל ממוצע השנתון';
+          else if (myC.attendingAvg < peerAvg - 0.3) label = '🟡 מתחת לממוצע השנתון';
+          else label = '⚪ סביב ממוצע השנתון';
+          lines.push(`- **${myC.label}**: ציון ${myC.attendingAvg}/5 · ${label} · מיקום ${rank}/${total}`);
+        }
+      });
+    }
+    lines.push('');
+    lines.push('_*לא מוצגים נתונים אישיים של מתמחים אחרים. ההשוואה אנונימית._');
+    return { ok: true, text: lines.join('\n'), category };
+  }
+
+  if (category === 'competency_deep' && myDossier) {
+    // Detect which competency was asked about
+    const map = {
+      'תקשורת': 'ics', 'communication': 'ics',
+      'מקצועיות': 'prof', 'professionalism': 'prof',
+      'טיפול': 'pc', 'patient care': 'pc',
+      'מערכת': 'sbp', 'systems': 'sbp',
+      'למידה': 'pbli', 'practice-based': 'pbli',
+      'ידע': 'mk', 'knowledge': 'mk'
+    };
+    let key = null;
+    for (const word in map) { if (query.includes(word)) { key = map[word]; break; } }
+    const comp = key ? myDossier.macro.competencies[key] : null;
+    if (!comp || comp.attendingAvg === null) {
+      lines.push('עדיין אין מספיק נתונים לקומפטנציה הזו בתקופה הנוכחית.');
+    } else {
+      lines.push(`### ${comp.label} — ניתוח מעמיק`);
+      lines.push('');
+      lines.push(`**הציון הנוכחי**: ${comp.attendingAvg}/5 (מ-${comp.attendingCount} בכירים)`);
+      if (comp.selfScore !== null) {
+        lines.push(`**הערכה עצמית**: ${comp.selfScore}/5`);
+        if (comp.gap !== null && Math.abs(comp.gap) > 0.5) {
+          if (comp.gap > 0) lines.push(`⚠ פער של +${comp.gap} — נוטה להעריך את עצמך גבוה יותר מהבכירים. שווה לבדוק עם PD איפה הפער.`);
+          else lines.push(`💡 פער של ${comp.gap} — נוטה להיות מחמיר/ה כלפי עצמך. הבכירים רואים אותך טוב יותר ממה שאתה רואה.`);
+        }
+      }
+      const trend = myDossier.macro.trendsVsPrevCycle[key];
+      if (trend !== undefined) {
+        if (trend > 0.3) lines.push(`📈 **מגמה**: שיפור של +${trend} מהתקופה הקודמת.`);
+        else if (trend < -0.3) lines.push(`📉 **מגמה**: ירידה של ${trend} מהתקופה הקודמת — מומלץ להתייעץ.`);
+        else lines.push(`➡ **מגמה**: יציבה (${trend > 0 ? '+' : ''}${trend} מהתקופה הקודמת).`);
+      }
+      if (comp.comments.length > 0) {
+        lines.push('');
+        lines.push('**הערות בכירים**:');
+        comp.comments.slice(0, 4).forEach(c => lines.push(`> ${c.text}${c.evaluator ? ` _(${c.evaluator})_` : ''}`));
+      }
+    }
+    return { ok: true, text: lines.join('\n'), category };
+  }
+
+  if (category === 'attending_patterns' && (role === 'pd' || role === 'coordinator')) {
+    // Aggregate by attending — PD-only
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+    const all = [..._getLocalHistory(), ...seed].filter(h => h.subType !== 'draft' && !h.selfAssessment);
+    const byAtt = {};
+    all.forEach(h => {
+      if (!h.evaluatorId || h.evaluatorRole === 'resident') return;
+      if (!byAtt[h.evaluatorId]) byAtt[h.evaluatorId] = { name: _resolveEvaluatorName(h.evaluatorId, h.evaluatorName), micro: 0, macro: 0, scores: [], lastDate: '' };
+      const obj = byAtt[h.evaluatorId];
+      if (h.type === 'macro') {
+        obj.macro++;
+        Object.values(h.competencies || {}).forEach(c => { if (typeof c.score === 'number') obj.scores.push(c.score); });
+      } else {
+        obj.micro++;
+        if (h.epaScores) Object.values(h.epaScores).forEach(s => { if (typeof s === 'number') obj.scores.push(s); });
+      }
+      if (h.timestamp > obj.lastDate) obj.lastDate = h.timestamp;
+    });
+    const list = Object.values(byAtt).map(a => ({ ...a, total: a.micro + a.macro, avgScore: a.scores.length ? +(a.scores.reduce((s,x)=>s+x,0) / a.scores.length).toFixed(2) : null }));
+    list.sort((a,b) => b.total - a.total);
+    lines.push(`### דפוסי הערכה של בכירים — ${list.length} מנחים פעילים`);
+    lines.push('');
+    lines.push('| בכיר | משובים | הערכות | ממוצע ציון | פעילות אחרונה |');
+    lines.push('|---|---:|---:|---:|---|');
+    list.slice(0, 15).forEach(a => {
+      lines.push(`| ${a.name} | ${a.micro} | ${a.macro} | ${a.avgScore !== null ? a.avgScore : '—'} | ${a.lastDate ? _fmtDateIL(a.lastDate) : '—'} |`);
+    });
+    return { ok: true, text: lines.join('\n'), category };
+  }
+
+  if (category === 'department_status' && (role === 'pd' || role === 'coordinator')) {
+    // Cross-resident department status
+    const dossiers = RESIDENTS.map(r => _collectResidentDossier(r.id)).filter(Boolean);
+    lines.push(`### סטטוס מחלקתי — תקופה נוכחית`);
+    lines.push('');
+    const flagged = dossiers.filter(d => d.flag);
+    const noEvals = dossiers.filter(d => d.macro.attendings.length === 0 && d.macro.self === null);
+    const ready = dossiers.filter(d => d.macro.self && d.macro.attendings.length >= 3 && !d.macro.pdApproved);
+    lines.push(`- 🚩 **מסומנים בליווי קרוב**: ${flagged.length}${flagged.length ? ' — ' + flagged.map(d => d.resident.name + (d.flag.color === 'red' ? ' 🔴' : ' 🟡')).join(', ') : ''}`);
+    lines.push(`- 😴 **ללא הערכה תקופתית בתקופה**: ${noEvals.length}${noEvals.length ? ' — ' + noEvals.map(d => d.resident.name).join(', ') : ''}`);
+    lines.push(`- 🤝 **מוכנים לפגישת סיכום**: ${ready.length}${ready.length ? ' — ' + ready.map(d => d.resident.name).join(', ') : ''}`);
+    return { ok: true, text: lines.join('\n'), category };
+  }
+
+  if (category === 'resident_lookup' && (role === 'pd' || role === 'coordinator')) {
+    // PD asking about a specific resident by name in the query
+    const matched = RESIDENTS.find(r => query.includes(r.name) || query.includes(r.name.split(' ')[0]));
+    if (!matched) {
+      lines.push('לא הצלחתי לזהות את המתמחה בשאלה. נסה לכתוב שם מלא, או השתמש ב-pd-portfolio לצפייה ספציפית.');
+      return { ok: true, text: lines.join('\n'), category };
+    }
+    const d = _collectResidentDossier(matched.id);
+    if (!d) return { ok: false, text: 'שגיאה בטעינת נתוני המתמחה', category };
+    lines.push(`### תקציר על ${d.resident.name}`);
+    lines.push('');
+    lines.push(`- **שנת התמחות**: שנה ${['א','ב','ג','ד','ה','ו'][d.resident.pgy-1]}`);
+    lines.push(`- **משך התמחות**: ${d.tenure.monthsInResidency} חודשים`);
+    lines.push(`- **פעולות**: ${d.procedures.met}/${d.procedures.total} קטגוריות עברו יעד`);
+    if (d.exams.history.length) {
+      const last = d.exams.history[d.exams.history.length - 1];
+      lines.push(`- **מבחן אחרון**: ${last.dateLabel} = ${last.score}${d.exams.trend !== null ? ` (${d.exams.trend > 0 ? '↗+' + d.exams.trend.toFixed(0) : d.exams.trend < 0 ? '↘' + d.exams.trend.toFixed(0) : '→'})` : ''}`);
+    }
+    lines.push(`- **הערכה בתקופה**: ${d.macro.attendings.length} בכירים${d.macro.self ? ' + הערכה עצמית' : ''}${d.macro.pdApproved ? ' + אישור PD ✓' : ''}`);
+    if (d.flag) lines.push(`- **🚩 דגל ${d.flag.color === 'red' ? 'אדום' : 'כתום'}**: ${d.flag.reason || 'ללא סיבה מתועדת'}`);
+    lines.push('');
+    lines.push(`[פתח דוח פגישת סיכום מלא ←](#) · [פתח תיק אישי ←](#)`);
+    return { ok: true, text: lines.join('\n'), category, action: { type: 'open_meeting_report', residentId: matched.id } };
+  }
+
+  // Fallback to "general" — no specific pattern matched
+  return null;
+}
+
 async function performSmartAnalysis(query, scope) {
+  // v2.10.27: route through new AI engine first
+  try {
+    const category = _aiCategorizeQuery(query);
+    const role = currentRole || 'attending';
+    const residentId = (role === 'resident') ? (currentUser?.id) : null;
+    const result = _aiAnswerFromDossier(query, category, role, residentId);
+    if (result && result.ok) {
+      // Privacy gate: log query
+      try { logToAudit('ai_query', { category, role, queryLength: query.length }); } catch(e) {}
+      return {
+        findings: [],
+        llmText: result.text,
+        context: { source: 'dossier_v2', category },
+        actionHint: result.action || null
+      };
+    }
+  } catch (e) {
+    console.warn('AI engine v2 error, falling back:', e);
+  }
+
+  // Fallback to original analysis
   const ctx = buildAnalysisContext(scope);
   const deterministicFindings = runDeterministicAnalysis(query, ctx);
   const llmText = await runLLMAnalysis(query, ctx);
