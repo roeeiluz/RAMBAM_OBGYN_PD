@@ -699,7 +699,7 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
 const APP_VERSION = '2.10.28-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.28: Inbox — סדר קבוע (תקופת הערכה ← בקשות ← סיכומים ממתינים ← מוכנים לפגישה). Meeting Report bugfix — דוח פגישת סיכום עבד רק לחלק מהמתמחים: seed evals חסרים residentId. עכשיו inbox builder מתרגם residentName→id, ו-_collectResidentDossier עם fallback by name. דוח עכשיו נפתח לכל מתמחה שמוכן.";
+const APP_VERSION_NOTES = "v2.10.28: Inbox — סדר קבוע (תקופת הערכה ← בקשות ← סיכומים ממתינים ← מוכנים לפגישה). Meeting Report bugfixes: (a) inbox builder מתרגם residentName→id; (b) _collectResidentDossier עם fallback by name; (c) effectiveCycle fallback — אם בתקופה הפעילה אין הערכות, מציג מהתקופה האחרונה עם נתונים.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2614,7 +2614,17 @@ function _collectResidentDossier(residentId, cycleId) {
 
   // Split by type and cycle
   const macroAll = allEvals.filter(e => e.type === 'macro' && e.subType !== 'draft');
-  const macroCurrentCycle = macroAll.filter(e => e.quarterId === targetCycle);
+  let macroCurrentCycle = macroAll.filter(e => e.quarterId === targetCycle);
+  let effectiveCycle = targetCycle;
+  // v2.10.28: if current cycle has no macro data, fallback to most recent cycle with data
+  // (avoids "no evaluations" when ready-for-meeting refers to a previous quarter's data)
+  if (macroCurrentCycle.length === 0 && macroAll.length > 0) {
+    const cyclesWithData = [...new Set(macroAll.map(e => e.quarterId).filter(Boolean))].sort().reverse();
+    if (cyclesWithData[0]) {
+      effectiveCycle = cyclesWithData[0];
+      macroCurrentCycle = macroAll.filter(e => e.quarterId === effectiveCycle);
+    }
+  }
   const macroSelf = macroCurrentCycle.find(e => e.subType === 'final' && e.evaluatorRole === 'resident');
   const macroAttendings = macroCurrentCycle.filter(e => e.subType === 'final' && e.evaluatorRole !== 'resident');
   const macroPdApproved = macroCurrentCycle.find(e => e.subType === 'pd_approved');
@@ -2667,9 +2677,10 @@ function _collectResidentDossier(residentId, cycleId) {
   }
 
   // Compare to previous cycle for trends
+  // v2.10.28: use effectiveCycle (matches fallback logic above)
   const prevCycle = macroAll
     .map(e => e.quarterId)
-    .filter(q => q && q !== targetCycle)
+    .filter(q => q && q !== effectiveCycle)
     .sort()
     .reverse()[0];
   const prevCycleEvals = prevCycle ? macroAll.filter(e => e.quarterId === prevCycle) : [];
@@ -2704,7 +2715,8 @@ function _collectResidentDossier(residentId, cycleId) {
     resident: { id: residentId, name: r.name, pgy, start, isDemo: !!r.isDemo },
     profile: { nameEn: profile.nameEn || '', additionalRoles, customRoles, isTutor, photoDataUrl: profile.photoDataUrl || null },
     tenure: { monthsInResidency, yearsInResidency, startMonth: start },
-    cycle: { id: targetCycle, type: activeCycle?.cycleType, deadline: activeCycle?.submissionDeadline, hardLock: activeCycle?.hardLockDate },
+    // v2.10.28: cycle.id = effectiveCycle (may differ from active cycle when falling back)
+    cycle: { id: effectiveCycle, requestedId: targetCycle, type: activeCycle?.cycleType, deadline: activeCycle?.submissionDeadline, hardLock: activeCycle?.hardLockDate, isFallback: effectiveCycle !== targetCycle },
     procedures: { rows: procSummary, met: procsMet, total: procsTotal, cesareans },
     exams: { history: exams, lastExam, trend: examTrend },
     macro: {
