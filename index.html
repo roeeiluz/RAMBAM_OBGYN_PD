@@ -311,6 +311,9 @@
       <!-- v2.10.18: Inbox — actionable items computed from current state -->
       <div id="pd-inbox" class="mb-4"></div>
 
+      <!-- v2.10.22: Submission Matrix — per-resident progress for active cycle -->
+      <div id="pd-submission-matrix" class="mb-4"></div>
+
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500">מתמחים פעילים</div>
@@ -694,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.21';
+const APP_VERSION = '2.10.22';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.21: Inbox מאוחד — כל המידע הקריטי במקום אחד. סטטוס תקופת הערכה (פתוחה/לא), סיקור בקשות (נשלחו ל-X / טרם נשלחו ל-Y), סיכומים ממתינים לאישור, מתמחים מוכנים לפגישת משוב (יש להם הערכה עצמית + 3 בכירים). הוסר ה-cycle strip הכפול בכותרת.";
+const APP_VERSION_NOTES = "v2.10.22: Submission Matrix בדשבורד (סטטוס מילוי פר-מתמחה: עצמית/בכירים/PD) + Red Flag UI (סימון מתמחים בליווי קרוב עם סיבה ו-audit, לחיצה על נקודת הצבע בטבלת מתמחים פותחת מודאל) + validator על approveMacro.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3355,6 +3358,190 @@ function _computePdInbox() {
   return items.sort((a, b) => b.urgency - a.urgency).slice(0, 6);
 }
 
+// v2.10.22: Red Flag storage — per-resident sticky flag with reason + audit
+// Stored: { residentId: { color: 'red'|'amber', reason, setBy, setAt } }
+const RESIDENT_FLAGS_KEY = 'cbme_resident_flags';
+function _getResidentFlags() {
+  try { return JSON.parse(localStorage.getItem(RESIDENT_FLAGS_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function _setResidentFlag(residentId, color, reason) {
+  const all = _getResidentFlags();
+  if (!color) {
+    delete all[residentId];
+  } else {
+    all[residentId] = {
+      color, reason: (reason || '').trim(),
+      setBy: currentUser?.id || 'unknown',
+      setByName: currentUser?.name || '',
+      setAt: new Date().toISOString()
+    };
+  }
+  safeSetItem(RESIDENT_FLAGS_KEY, JSON.stringify(all));
+}
+function _flagFor(residentId) { return _getResidentFlags()[residentId] || null; }
+
+function _openFlagModal(residentId, residentName) {
+  const current = _flagFor(residentId);
+  const modal = document.createElement('div');
+  modal.id = 'flag-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl p-5 max-w-md w-full">
+      <h3 class="text-base font-semibold mb-2 flex items-center gap-2"><span>🚩</span><span>סימון מתמחה לליווי קרוב</span></h3>
+      <p class="text-xs text-gray-600 mb-4">${escapeHtml(residentName)} ${current ? `· מסומן כעת בצבע <strong>${current.color === 'red' ? 'אדום' : 'כתום'}</strong> ע"י ${escapeHtml(current.setByName || current.setBy)} ב-${_fmtDateIL(current.setAt)}` : ''}</p>
+      <label class="text-xs font-medium text-gray-700 block mb-1">רמת ליווי</label>
+      <div class="grid grid-cols-3 gap-2 mb-3">
+        <label class="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer ${current?.color === 'red' ? 'border-red-500 bg-red-50' : 'border-gray-200'}"><input type="radio" name="flag-color" value="red" ${current?.color === 'red' ? 'checked' : ''}> <span class="text-xs">🔴 דגל אדום (מעקב צמוד)</span></label>
+        <label class="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer ${current?.color === 'amber' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'}"><input type="radio" name="flag-color" value="amber" ${current?.color === 'amber' ? 'checked' : ''}> <span class="text-xs">🟡 דגל כתום (תשומת לב)</span></label>
+        <label class="flex items-center gap-2 p-2 border-2 rounded-lg cursor-pointer ${!current ? 'border-gray-400 bg-gray-50' : 'border-gray-200'}"><input type="radio" name="flag-color" value="" ${!current ? 'checked' : ''}> <span class="text-xs">⬜ ללא דגל</span></label>
+      </div>
+      <label class="text-xs font-medium text-gray-700 block mb-1">סיבה (אופציונלי אם מסיר)</label>
+      <textarea id="flag-reason" rows="3" placeholder="לדוגמה: ביצועי OR נמוכים שלושה רבעונים ברצף, נוכחות לימוד נמוכה, שיחה אישית 3.4.26..." class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">${escapeHtml(current?.reason || '')}</textarea>
+      <div class="text-[10px] text-gray-400 mt-2">הדגל נראה ל-PD ולרכזת בלבד. נתון לאודיט (מי סימן ומתי).</div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="document.getElementById('flag-modal').remove()" class="flex-1 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">ביטול</button>
+        <button onclick="_saveFlagFromModal('${escapeAttr(residentId)}')" class="flex-1 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700">שמור</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+function _saveFlagFromModal(residentId) {
+  const color = document.querySelector('input[name="flag-color"]:checked')?.value || '';
+  const reason = document.getElementById('flag-reason')?.value || '';
+  if (color && !reason.trim()) {
+    if (!confirm('סימון דגל ללא סיבה לא מומלץ — הסיבה משמשת לאודיט עתידי. להמשיך בכל זאת?')) return;
+  }
+  _setResidentFlag(residentId, color, reason);
+  logToAudit('flag_resident', { residentId, color, hasReason: !!reason.trim() });
+  document.getElementById('flag-modal').remove();
+  showToast(color ? `🚩 סומן (${color === 'red' ? 'אדום' : 'כתום'})` : 'הדגל הוסר', 'success');
+  if (currentScreen === 'pd-dashboard') renderPdDashboard();
+}
+
+// v2.10.22: Submission Matrix — per-resident progress for the active cycle.
+// Rows = participating residents. Cells: self-eval + each requested attending + PD approval.
+// Required attendings come from the open eval-request for that (resident, cycle).
+function _computeMatrix() {
+  let activeCycle = null;
+  try { activeCycle = _getActiveCycle(); } catch (e) {}
+  if (!activeCycle) return null;
+  const cycleId = activeCycle.id;
+  const participants = (activeCycle.participatingResidents || []).length
+    ? activeCycle.participatingResidents.map(id => RESIDENTS.find(r => r.id === id)).filter(Boolean)
+    : RESIDENTS;
+
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const allHist = [..._getLocalHistory(), ...seed];
+  const requests = _getEvalRequests();
+
+  return participants.map(r => {
+    // Self eval done?
+    const selfFinal = allHist.find(h => h.type === 'macro' && h.subType === 'final' && h.residentId === r.id && h.quarterId === cycleId && h.evaluatorRole === 'resident');
+    // PD approved?
+    const pdApproved = allHist.find(h => h.type === 'macro' && h.subType === 'pd_approved' && h.residentId === r.id && h.quarterId === cycleId);
+    // Required attendings = those from any open eval-request for this resident+cycle (excluding self)
+    const req = requests.find(rq => rq.status === 'open' && rq.residentId === r.id && rq.quarterId === cycleId);
+    const requiredAttIds = req ? req.evaluatorIds.filter(id => id !== r.id) : [];
+    const attendingProgress = requiredAttIds.map(aid => {
+      const submitted = allHist.find(h => h.type === 'macro' && h.subType === 'final' && h.residentId === r.id && h.quarterId === cycleId && h.evaluatorId === aid);
+      return {
+        id: aid,
+        name: _resolveEvaluatorName(aid),
+        done: !!submitted,
+        timestamp: submitted?.timestamp || null
+      };
+    });
+    const requiredDone = attendingProgress.filter(a => a.done).length;
+    const requiredTotal = attendingProgress.length;
+    return {
+      resident: r,
+      selfStatus: selfFinal ? 'done' : 'pending',
+      attendingProgress,
+      requiredDone,
+      requiredTotal,
+      pdStatus: pdApproved ? 'done' : (selfFinal && requiredDone >= 3 ? 'ready' : 'pending'),
+      pdApprovedAt: pdApproved?.timestamp || null,
+      flag: _flagFor(r.id)
+    };
+  });
+}
+
+function _renderSubmissionMatrix() {
+  const el = document.getElementById('pd-submission-matrix');
+  if (!el) return;
+  const rows = _computeMatrix();
+  if (!rows) { el.innerHTML = ''; return; }  // no active cycle
+
+  const cycle = _getActiveCycle();
+  const cellIcon = (status) => {
+    if (status === 'done')    return '<span class="text-green-600">✓</span>';
+    if (status === 'ready')   return '<span class="text-purple-600">🤝</span>';
+    if (status === 'pending') return '<span class="text-gray-400">○</span>';
+    return '<span class="text-gray-300">—</span>';
+  };
+  const flagBtn = (r) => {
+    const f = r.flag;
+    const icon = f ? (f.color === 'red' ? '🔴' : '🟡') : '⬜';
+    const cls = f ? (f.color === 'red' ? 'text-red-600' : 'text-amber-600') : 'text-gray-300 hover:text-gray-500';
+    const title = f ? `${f.color === 'red' ? 'אדום' : 'כתום'}${f.reason ? ' · ' + f.reason : ''}` : 'הוסף דגל';
+    return `<button onclick="_openFlagModal('${escapeAttr(r.resident.id)}', '${escapeAttr(r.resident.name)}')" class="text-base ${cls}" title="${escapeAttr(title)}">${icon}</button>`;
+  };
+
+  el.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div class="text-xs font-medium text-gray-500 uppercase">📋 מטריצת הגשה · רבעון ${escapeHtml(cycle.id)}</div>
+        <div class="flex items-center gap-3 text-[10px] text-gray-400">
+          <span>✓ הוגש</span><span>○ ממתין</span><span>🤝 מוכן לפגישה</span>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead class="text-[10px] text-gray-500 uppercase">
+            <tr class="border-b border-gray-100">
+              <th class="text-right py-2 px-1 font-medium w-8">🚩</th>
+              <th class="text-right py-2 px-1 font-medium">מתמחה</th>
+              <th class="text-center py-2 px-1 font-medium">עצמית</th>
+              <th class="text-center py-2 px-1 font-medium">בכירים</th>
+              <th class="text-center py-2 px-1 font-medium">אישור PD</th>
+              <th class="text-left py-2 px-1 font-medium">פעולה</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => {
+              const pgyLabel = r.resident.pgy ? `שנה ${['א','ב','ג','ד','ה','ו'][r.resident.pgy-1]}` : '';
+              const attendingCellHtml = r.requiredTotal === 0
+                ? `<span class="text-gray-400 text-[10px]">לא נשלחה בקשה</span>`
+                : `<div class="flex items-center justify-center gap-1 flex-wrap"><span class="font-medium">${r.requiredDone}/${r.requiredTotal}</span>${r.attendingProgress.slice(0, 5).map(a => `<span class="${a.done ? 'text-green-600' : 'text-gray-400'} text-xs" title="${escapeAttr(a.name + (a.done ? ' (הוגש)' : ' (ממתין)'))}">${a.done ? '✓' : '○'}</span>`).join('')}${r.requiredTotal > 5 ? '<span class="text-[10px] text-gray-400">+'+(r.requiredTotal-5)+'</span>' : ''}</div>`;
+              const actionBtn = r.pdStatus === 'done'
+                ? `<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'view')" class="text-[10px] text-purple-600 hover:underline">צפה</button>`
+                : r.pdStatus === 'ready'
+                ? `<button onclick="_pdMacroOpenFormById('${escapeAttr(r.resident.id)}', 'normal')" class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded">אשר ←</button>`
+                : `<span class="text-[10px] text-gray-400">—</span>`;
+              return `
+                <tr class="border-b border-gray-50 hover:bg-gray-50">
+                  <td class="py-1.5 px-1 text-center">${flagBtn(r)}</td>
+                  <td class="py-1.5 px-1">
+                    <div class="font-medium">${escapeHtml(r.resident.name)}</div>
+                    <div class="text-[10px] text-gray-400">${pgyLabel}</div>
+                  </td>
+                  <td class="py-1.5 px-1 text-center text-base">${cellIcon(r.selfStatus)}</td>
+                  <td class="py-1.5 px-1 text-center">${attendingCellHtml}</td>
+                  <td class="py-1.5 px-1 text-center text-base">${cellIcon(r.pdStatus)}</td>
+                  <td class="py-1.5 px-1 text-left">${actionBtn}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-100">דרישת בכירים נגזרת מבקשת ההערכה הפעילה. ניתן להוסיף דרישה דרך מסך "בקשות הערכה".</div>
+    </div>
+  `;
+}
+
 function _renderPdInbox() {
   const el = document.getElementById('pd-inbox');
   if (!el) return;
@@ -3401,6 +3588,9 @@ function renderPdDashboard() {
 
   // v2.10.18: render the actionable inbox first
   try { _renderPdInbox(); } catch (e) { console.warn('inbox render error', e); }
+
+  // v2.10.22: render submission matrix (only shows when an active cycle exists)
+  try { _renderSubmissionMatrix(); } catch (e) { console.warn('matrix render error', e); }
 
   const hebrewMonths = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   document.getElementById('dashboard-date').textContent = `${hebrewMonths[new Date().getMonth()]} ${new Date().getFullYear()}`;
@@ -3570,25 +3760,31 @@ function renderResidentsTable() {
     const hasScore = r.score != null;
     const pct = hasScore ? (r.score / 5) * 100 : 0;
     const sc = !hasScore ? '#9ca3af' : r.score < 3.0 ? '#dc2626' : r.score < 3.4 ? '#d97706' : '#059669';
-    const fc = r.flag === 'red' ? 'bg-red-500' : r.flag === 'amber' ? 'bg-amber-500' : r.flag === 'green' ? 'bg-green-500' : 'bg-gray-300';
+    // v2.10.22: prefer manual flag from cbme_resident_flags over static r.flag
+    const manualFlag = _flagFor(r.id);
+    const flagColor = manualFlag ? manualFlag.color : r.flag;
+    const fc = flagColor === 'red' ? 'bg-red-500' : flagColor === 'amber' ? 'bg-amber-500' : flagColor === 'green' ? 'bg-green-500' : 'bg-gray-300';
+    const flagTitle = manualFlag ? `${manualFlag.color === 'red' ? '🔴 דגל אדום' : '🟡 דגל כתום'} · ${escapeHtml(manualFlag.reason || 'ללא סיבה')} · ${escapeHtml(manualFlag.setByName || manualFlag.setBy)} (${_fmtDateIL(manualFlag.setAt)})` : 'אין דגל';
     return `
-      <div onclick="openProfile('${r.id}')" class="grid grid-cols-12 gap-2 px-2 py-2 hover:bg-gray-50 rounded-lg cursor-pointer items-center border-b border-gray-50">
-        <div class="col-span-12 md:col-span-4 flex items-center gap-2.5">
+      <div class="grid grid-cols-12 gap-2 px-2 py-2 hover:bg-gray-50 rounded-lg items-center border-b border-gray-50">
+        <div onclick="openProfile('${r.id}')" class="col-span-12 md:col-span-4 flex items-center gap-2.5 cursor-pointer">
           <div class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-semibold shrink-0">${r.initials}</div>
           <div class="text-sm text-gray-900 truncate">${r.name}</div>
         </div>
-        <div class="col-span-3 md:col-span-1 text-center">
+        <div onclick="openProfile('${r.id}')" class="col-span-3 md:col-span-1 text-center cursor-pointer">
           <span class="badge-pgy${r.pgy} text-xs px-2 py-0.5 rounded-full font-medium">${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳</span>
         </div>
-        <div class="col-span-9 md:col-span-2 text-xs text-gray-500">${fmtDate(r.start)}</div>
-        <div class="col-span-9 md:col-span-3 flex items-center gap-2">
+        <div onclick="openProfile('${r.id}')" class="col-span-9 md:col-span-2 text-xs text-gray-500 cursor-pointer">${fmtDate(r.start)}</div>
+        <div onclick="openProfile('${r.id}')" class="col-span-9 md:col-span-3 flex items-center gap-2 cursor-pointer">
           <div class="flex-1 bg-gray-100 score-bar overflow-hidden">
             <div class="score-bar h-full" style="width:${pct}%;background:${sc}"></div>
           </div>
           <div class="text-xs font-semibold w-7 text-left" style="color:${sc}">${hasScore ? r.score.toFixed(1) : '—'}</div>
         </div>
-        <div class="col-span-3 md:col-span-1 flex justify-center"><div class="w-2 h-2 rounded-full ${fc}"></div></div>
-        <div class="hidden md:flex col-span-1 justify-end text-xs text-blue-600">←</div>
+        <div class="col-span-3 md:col-span-1 flex justify-center">
+          <button onclick="event.stopPropagation(); _openFlagModal('${escapeAttr(r.id)}', '${escapeAttr(r.name)}')" class="w-3 h-3 rounded-full ${fc} hover:scale-125 transition-transform" title="${escapeAttr(flagTitle)}"></button>
+        </div>
+        <div onclick="openProfile('${r.id}')" class="hidden md:flex col-span-1 justify-end text-xs text-blue-600 cursor-pointer">←</div>
       </div>
     `;
   }).join('');
@@ -6295,6 +6491,17 @@ async function approveMacro() {
     improvePoints: improvePoints,
     recommendation: recommendation,
   };
+
+  // v2.10.22: schema validator on PD approval (was only on submitEvaluation before)
+  const _av = _validateEvaluation(approvedEntry);
+  if (!_av.ok) {
+    console.error('[approveMacro] VALIDATION FAILED:', _av.errors, 'data:', approvedEntry);
+    showToast('שגיאת תיקוף באישור הסיכום. ראה/י Console.', 'error');
+    return;
+  }
+  if (_av.warnings && _av.warnings.length) {
+    console.warn('[approveMacro] validation warnings:', _av.warnings);
+  }
 
   // ── DEV MODE: save locally only ──
   if (typeof DEV_BYPASS_AUTH !== 'undefined' && DEV_BYPASS_AUTH) {
