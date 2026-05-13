@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.28-dev';
+const APP_VERSION = '2.10.29-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.28: Inbox — סדר קבוע (תקופת הערכה ← בקשות ← סיכומים ממתינים ← מוכנים לפגישה). Meeting Report bugfixes: (a) inbox builder מתרגם residentName→id; (b) _collectResidentDossier עם fallback by name; (c) effectiveCycle fallback — אם בתקופה הפעילה אין הערכות, מציג מהתקופה האחרונה עם נתונים.";
+const APP_VERSION_NOTES = "v2.10.29: (a) Rename 'בקשות משובים והערכותי' → 'בקשות למשובים' בתפריט בכיר וצ'יף. (b) Bugfix: id `micro-recent-panel` היה כפול בין מסך bכיר וצ'יף — getElementById החזיר רק את הראשון, כך שפאנל 'פעילות אחרונה' לא הופיע בצ'יף. נקרה עם role suffix.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3132,7 +3132,7 @@ const NAV_BY_ROLE = {
   ],
   attending: [
     { id: 'attending-micro',      label: 'משוב מהיר',    icon: '⚡' },
-    { id: 'senior-requests',      label: 'בקשות משובים והערכותי', icon: '✉' },
+    { id: 'senior-requests',      label: 'בקשות למשובים', icon: '✉' },
     { id: 'attending-macro',      label: 'הערכה תקופתית',  icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
     // v2.10.24: 'eval-status' removed — embedded in micro/macro screens
@@ -3141,7 +3141,7 @@ const NAV_BY_ROLE = {
   ],
   chief: [
     { id: 'chief-micro',      label: 'משוב מהיר',     icon: '⚡' },
-    { id: 'senior-requests',  label: 'בקשות משובים והערכותי', icon: '✉' },
+    { id: 'senior-requests',  label: 'בקשות למשובים', icon: '✉' },
     { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
     // v2.10.24: 'eval-status' removed — embedded in micro/macro screens
     { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
@@ -5221,7 +5221,8 @@ let selectedSubproc = null;
 
 // v2.10.23: panel under attending-micro form — recent micros given by me
 function _renderRecentMicros(role) {
-  const panel = document.getElementById('micro-recent-panel');
+  // v2.10.29: id scoped by role to fix collision (both screens were in DOM, only first matched)
+  const panel = document.getElementById(`micro-recent-panel-${role}`) || document.getElementById('micro-recent-panel');
   if (!panel) return;
   const uid = currentUser?.id;
   if (!uid) { panel.innerHTML = ''; return; }
@@ -5410,7 +5411,8 @@ function renderMicroForm(role) {
     </div>
 
     <!-- v2.10.23: Recent micro feedbacks panel — current period + archive -->
-    <div id="micro-recent-panel" class="mt-6"></div>
+    <!-- v2.10.29: id scoped by role to avoid collision when both screens are in DOM -->
+    <div id="micro-recent-panel-${role}" class="mt-6"></div>
   `;
 
   const sel = document.getElementById('micro-resident');
@@ -5468,7 +5470,7 @@ function renderMicroForm(role) {
   window._currentMicroFormId = formId;  // remember for clearing on submit
 
   // v2.9.19: Pre-fill from pending micro-request — when senior clicked a request
-  // in "בקשות משובים והערכותי", we pre-select the resident and the event tile
+  // in "בקשות למשובים", we pre-select the resident and the event tile
   // so the form opens already wired to the request's context.
   if (window._pendingMicroRequest) {
     const req = window._pendingMicroRequest;
@@ -5789,7 +5791,7 @@ function renderEvalStatus() {
       </div>
     </div>
 
-    <!-- v2.9.14: pending requests banner removed — moved to dedicated "בקשות משובים והערכותי" screen -->
+    <!-- v2.9.14: pending requests banner removed — moved to dedicated "בקשות למשובים" screen -->
 
     <!-- ── Evaluation list ── -->
     <div class="bg-white rounded-xl border border-gray-200 p-4">
@@ -8794,7 +8796,7 @@ function _openMicroRequestModal() {
           <h2 class="text-lg font-semibold">בקשת משוב מהיר</h2>
           <button onclick="_closeMicroRequestModal()" class="text-gray-400 hover:text-gray-600 text-xl">×</button>
         </div>
-        <p class="text-xs text-gray-500 mb-4">הבקשה תופיע אצל הבכיר במסך "בקשות משובים והערכותי". המשוב שייכתב יישמר בתיק שלך.</p>
+        <p class="text-xs text-gray-500 mb-4">הבקשה תופיע אצל הבכיר במסך "בקשות למשובים". המשוב שייכתב יישמר בתיק שלך.</p>
         <div class="space-y-3">
           <div>
             <label class="text-xs font-medium text-gray-700 mb-1 block">בכיר/צ'יף</label>
@@ -8946,7 +8948,7 @@ function renderSeniorRequests() {
 
   screen.innerHTML = `
     <div class="mb-5">
-      <h1 class="text-lg font-semibold">בקשות משובים והערכותי</h1>
+      <h1 class="text-lg font-semibold">בקשות למשובים</h1>
       <p class="text-xs text-gray-500 mt-0.5">בקשות שהופנו אליך למילוי. לחיצה על בקשה תפתח את הטופס המתאים.</p>
     </div>
 
