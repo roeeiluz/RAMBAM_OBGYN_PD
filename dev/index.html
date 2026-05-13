@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.22-dev';
+const APP_VERSION = '2.10.23-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.22: Submission Matrix בדשבורד (סטטוס מילוי פר-מתמחה: עצמית/בכירים/PD) + Red Flag UI (סימון מתמחים בליווי קרוב עם סיבה ו-audit, לחיצה על נקודת הצבע בטבלת מתמחים פותחת מודאל) + validator על approveMacro.";
+const APP_VERSION_NOTES = "v2.10.23: בכירים — אריחי 'משוב תקופתי' עודכנו ל-4 (פתח חדשה / טיוטות / הערכות בתקופה הנוכחית / ארכיון עם סינון). פאנל 'פעילות אחרונה' מתחת לטופס משוב מהיר עם current+archive cards.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -3139,10 +3139,12 @@ function renderScreen() {
 
   if (currentScreen === 'attending-micro') renderMicroForm();
   if (currentScreen === 'attending-macro') {
-    // v2.10.12: tile dashboard for attending/PD macro-fill flow
-    if (_attendingMacroSubview === 'drafts')    _renderAttendingMacroDrafts();
-    else if (_attendingMacroSubview === 'all')  _renderAttendingMacroAllEvals();
-    else if (_attendingMacroSubview === 'form') renderMacroFormScreen('attending');
+    // v2.10.12 → v2.10.23: tile dashboard with 'current' and 'archive' subviews
+    if (_attendingMacroSubview === 'drafts')         _renderAttendingMacroDrafts();
+    else if (_attendingMacroSubview === 'current')   _renderAttendingMacroAllEvals();
+    else if (_attendingMacroSubview === 'all')       _renderAttendingMacroAllEvals();   // legacy alias
+    else if (_attendingMacroSubview === 'archive')   _renderAttendingMacroArchive();
+    else if (_attendingMacroSubview === 'form')      renderMacroFormScreen('attending');
     else _renderAttendingMacroTiles();
   }
   if (currentScreen === 'attending-history') renderEvalStatus(); // legacy alias
@@ -4657,6 +4659,70 @@ const EVENT_LIBRARY = {
 let selectedEvent = null;
 let selectedSubproc = null;
 
+// v2.10.23: panel under attending-micro form — recent micros given by me
+function _renderRecentMicros(role) {
+  const panel = document.getElementById('micro-recent-panel');
+  if (!panel) return;
+  const uid = currentUser?.id;
+  if (!uid) { panel.innerHTML = ''; return; }
+
+  // Time boundary: current period = last 90 days (rough heuristic, can refine to cycle later)
+  const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const allMicros = [..._getLocalHistory(), ...seed].filter(h =>
+    h.type === 'micro' && h.evaluatorId === uid && !h.selfAssessment
+  );
+  const currentPeriod = allMicros.filter(h => new Date(h.timestamp || h.date || 0).getTime() > ninetyDaysAgo);
+  const archive = allMicros.filter(h => new Date(h.timestamp || h.date || 0).getTime() <= ninetyDaysAgo);
+
+  // Latest 3 from current period for preview
+  const preview = currentPeriod.slice().sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || '')).slice(0, 3);
+
+  const accent = role === 'chief' ? 'orange' : 'blue';
+
+  panel.innerHTML = `
+    <div class="bg-${accent}-50 border-2 border-${accent}-200 rounded-xl p-4">
+      <div class="text-sm font-semibold text-${accent}-900 mb-3 flex items-center gap-2">
+        <span>🕐</span> פעילות אחרונה — המשובים המהירים שלי
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+        <!-- Current period card -->
+        <div class="bg-white rounded-lg border border-${accent}-200 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-medium text-${accent}-700">📨 בתקופה (90 ימים אחרונים)</div>
+            <span class="text-lg font-bold text-${accent}-700">${currentPeriod.length}</span>
+          </div>
+          ${preview.length > 0 ? `
+            <div class="space-y-1 text-xs text-gray-700 mb-2">
+              ${preview.map(m => {
+                const rname = (m.residentName || '').replace(/^ד"ר\s+/, '') || '?';
+                return `<div class="flex items-center gap-2 py-0.5 border-b border-gray-50">
+                  <span class="text-gray-500 text-[10px]">${_fmtDateIL(m.timestamp)}</span>
+                  <span class="truncate flex-1">${escapeHtml(rname)}</span>
+                  <span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">${escapeHtml(m.categoryLabel || m.category || '')}</span>
+                </div>`;
+              }).join('')}
+            </div>
+          ` : '<div class="text-xs text-gray-400 py-2">עדיין לא נתת משובים מהירים בתקופה הזו</div>'}
+          ${currentPeriod.length > 0 ? `<button onclick="navigateTo('eval-status')" class="text-xs text-${accent}-600 hover:underline">ראה את כל ${currentPeriod.length} ←</button>` : ''}
+        </div>
+
+        <!-- Archive card -->
+        <div class="bg-white rounded-lg border border-gray-200 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-medium text-gray-700">🗃 ארכיון (מעל 90 ימים)</div>
+            <span class="text-lg font-bold text-gray-700">${archive.length}</span>
+          </div>
+          <div class="text-xs text-gray-500 mb-2">${archive.length === 0 ? 'אין משובים בארכיון עדיין' : `${archive.length} משובים מהיר/ים שניתנו לפני יותר מ-90 ימים`}</div>
+          ${archive.length > 0 ? `<button onclick="navigateTo('eval-status')" class="text-xs text-gray-600 hover:underline">פתח היסטוריה מלאה ←</button>` : ''}
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
 function renderMicroForm(role) {
   role = role || 'attending';
   const screenId = role === 'chief' ? 'screen-chief-micro' : 'screen-attending-micro';
@@ -4741,6 +4807,9 @@ function renderMicroForm(role) {
 
       <button onclick="submitMicroEval()" class="w-full px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">שלח הערכה</button>
     </div>
+
+    <!-- v2.10.23: Recent micro feedbacks panel — current period + archive -->
+    <div id="micro-recent-panel" class="mt-6"></div>
   `;
 
   const sel = document.getElementById('micro-resident');
@@ -4751,6 +4820,9 @@ function renderMicroForm(role) {
       `<option value="${r.id}">${r.name} (שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}׳)</option>`
     ).join('');
   }
+
+  // v2.10.23: render recent micros panel below the form
+  try { _renderRecentMicros(role); } catch (e) { console.warn('recent micros panel error', e); }
 
   selectedEvent = null;
   selectedSubproc = null;
@@ -8385,12 +8457,30 @@ function _attendingMacroOpenNew()    { _attendingMacroSubview = 'form';   render
 function _attendingMacroGoToDrafts() { _attendingMacroSubview = 'drafts'; renderScreen(); }
 function _attendingMacroGoToAll()    { _attendingMacroSubview = 'all';    renderScreen(); }
 
+// v2.10.23: split allEvals by current cycle vs archive
+function _attendingMacroCurrentCycleEvals() {
+  let cycleId = null;
+  try { cycleId = _getActiveCycle()?.id || _currentQuarterId(); } catch (e) { cycleId = _currentQuarterId(); }
+  return _attendingMacroState().allEvals.filter(e => e.quarterId === cycleId);
+}
+function _attendingMacroArchivedEvals() {
+  let cycleId = null;
+  try { cycleId = _getActiveCycle()?.id; } catch (e) {}
+  // Without an active cycle, treat the "current calendar quarter" as the boundary
+  if (!cycleId) cycleId = _currentQuarterId();
+  return _attendingMacroState().allEvals.filter(e => e.quarterId !== cycleId);
+}
+function _attendingMacroGoToCurrent() { _attendingMacroSubview = 'current'; renderScreen(); }
+function _attendingMacroGoToArchive() { _attendingMacroSubview = 'archive'; renderScreen(); }
+
 function _renderAttendingMacroTiles() {
   const screen = document.getElementById('screen-attending-macro');
   if (!screen) return;
   const s = _attendingMacroState();
   const draftCount = s.drafts.length;
-  const evalCount  = s.allEvals.length;
+  const currentEvals = _attendingMacroCurrentCycleEvals();
+  const archiveEvals = _attendingMacroArchivedEvals();
+  const cycleId = _getActiveCycle()?.id || _currentQuarterId();
 
   const tile = (icon, title, count, desc, action, color) => `
     <button onclick="${action}"
@@ -8410,7 +8500,7 @@ function _renderAttendingMacroTiles() {
       <p class="text-xs text-gray-500 mt-0.5">בחר/י מה ברצונך לעשות. סטטוס ההערכות שלך כעת:</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
       <button onclick="_attendingMacroOpenNew()" class="bg-white rounded-xl border-2 border-blue-300 p-4 text-right hover:border-blue-500 hover:shadow transition cursor-pointer">
         <div class="flex items-start justify-between mb-2">
           <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">✏️</div>
@@ -8420,12 +8510,110 @@ function _renderAttendingMacroTiles() {
         <div class="text-xs text-gray-500 leading-relaxed">התחל הערכה תקופתית חדשה למתמחה</div>
       </button>
       ${tile('✎', 'טיוטות', draftCount, draftCount === 0 ? 'אין טיוטות שמורות' : 'טיוטות שמורות שלך — להמשיך', '_attendingMacroGoToDrafts()', 'amber')}
-      ${tile('📋', 'סטטוס כל ההערכות', evalCount, evalCount === 0 ? 'עוד לא מילאת הערכות תקופתיות' : 'הערכות שמילאת — טיוטה / סגורה / סגורה לאחר דדליין', '_attendingMacroGoToAll()', 'green')}
+      ${tile('📋', 'הערכות שלי בתקופה', currentEvals.length, currentEvals.length === 0 ? `אין הערכות שמילאת ב-${cycleId}` : `הערכות שמילאת ב-${cycleId} (טיוטה/סגורה)`, '_attendingMacroGoToCurrent()', 'green')}
+      ${tile('🗃', 'ארכיון', archiveEvals.length, archiveEvals.length === 0 ? 'אין הערכות מתקופות קודמות' : 'הערכות מתקופות קודמות (סינון לפי תקופה/תאריך/מתמחה)', '_attendingMacroGoToArchive()', 'gray')}
     </div>
 
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 leading-relaxed">
       💡 לחץ/י "פתח הערכה חדשה" כדי להתחיל הערכה חדשה למתמחה. טיוטות שלך נשמרות אוטומטית. הערכה שהוגשה נסגרת לעריכה (אלא אם הדדליין לא חלף).
     </div>
+  `;
+}
+
+// v2.10.23: archive drilldown with filters (quarter / date range / resident)
+let _attendingArchiveFilter = { quarter: 'all', from: '', to: '', residentId: 'all' };
+
+function _renderAttendingMacroArchive() {
+  const screen = document.getElementById('screen-attending-macro');
+  if (!screen) return;
+  const allArchive = _attendingMacroArchivedEvals();
+  const f = _attendingArchiveFilter;
+
+  // Apply filters
+  let filtered = allArchive;
+  if (f.quarter !== 'all') filtered = filtered.filter(e => e.quarterId === f.quarter);
+  if (f.residentId !== 'all') filtered = filtered.filter(e => e.residentId === f.residentId);
+  if (f.from) filtered = filtered.filter(e => (e.timestamp || '').slice(0, 10) >= f.from);
+  if (f.to)   filtered = filtered.filter(e => (e.timestamp || '').slice(0, 10) <= f.to);
+
+  // Build available quarters from archive
+  const quarters = Array.from(new Set(allArchive.map(e => e.quarterId).filter(Boolean))).sort().reverse();
+  const residentIds = Array.from(new Set(allArchive.map(e => e.residentId).filter(Boolean)));
+  const residentOpts = residentIds.map(id => {
+    const r = RESIDENTS.find(x => x.id === id);
+    return { id, name: r?.name || allArchive.find(e => e.residentId === id)?.residentName?.replace(/^ד"ר\s+/, '') || id };
+  });
+
+  const body = filtered.length === 0 ? `
+    <div class="text-center py-8">
+      <div class="text-3xl mb-2">📋</div>
+      <div class="text-sm text-gray-500">${allArchive.length === 0 ? 'אין הערכות בארכיון עדיין' : 'אין תוצאות לסינון הנוכחי'}</div>
+    </div>
+  ` : `
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50"><tr class="text-xs text-gray-500 uppercase">
+          <th class="px-3 py-2 text-right font-medium">מתמחה</th>
+          <th class="px-3 py-2 text-right font-medium">רבעון</th>
+          <th class="px-3 py-2 text-right font-medium">סטטוס</th>
+          <th class="px-3 py-2 text-right font-medium">תאריך</th>
+        </tr></thead>
+        <tbody>
+        ${filtered.map(e => {
+          const rname = (e.residentName || '').replace(/^ד"ר\s+/, '') || '—';
+          const status = _attendingMacroEvalStatus(e);
+          const badge = _attendingMacroStatusBadge(status);
+          return `
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(rname)}</td>
+              <td class="px-3 py-2.5 text-sm">${escapeHtml(e.quarterId || '—')}</td>
+              <td class="px-3 py-2.5">${badge}</td>
+              <td class="px-3 py-2.5 text-xs text-gray-500">${_fmtDateIL(e.timestamp)}</td>
+            </tr>
+          `;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  screen.innerHTML = `
+    <div class="mb-4">
+      <button onclick="_attendingMacroGoToTiles()" class="text-xs text-blue-600 hover:underline mb-1">‹ חזרה לאריחים</button>
+      <h1 class="text-lg font-semibold">🗃 ארכיון הערכות תקופתיות</h1>
+      <p class="text-xs text-gray-500 mt-0.5">${filtered.length} מתוך ${allArchive.length} הערכות בתקופות קודמות</p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-3 mb-3">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div>
+          <label class="text-[10px] font-medium text-gray-600 block mb-0.5">רבעון</label>
+          <select onchange="_attendingArchiveFilter.quarter = this.value; _renderAttendingMacroArchive();" class="w-full text-xs border border-gray-200 rounded px-2 py-1.5">
+            <option value="all">כל הרבעונים</option>
+            ${quarters.map(q => `<option value="${escapeAttr(q)}" ${f.quarter === q ? 'selected' : ''}>${escapeHtml(q)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-medium text-gray-600 block mb-0.5">מתמחה</label>
+          <select onchange="_attendingArchiveFilter.residentId = this.value; _renderAttendingMacroArchive();" class="w-full text-xs border border-gray-200 rounded px-2 py-1.5">
+            <option value="all">כל המתמחים</option>
+            ${residentOpts.map(o => `<option value="${escapeAttr(o.id)}" ${f.residentId === o.id ? 'selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-medium text-gray-600 block mb-0.5">מתאריך</label>
+          <input type="date" value="${f.from}" onchange="_attendingArchiveFilter.from = this.value; _renderAttendingMacroArchive();" class="w-full text-xs border border-gray-200 rounded px-2 py-1.5" style="direction:ltr">
+        </div>
+        <div>
+          <label class="text-[10px] font-medium text-gray-600 block mb-0.5">עד תאריך</label>
+          <input type="date" value="${f.to}" onchange="_attendingArchiveFilter.to = this.value; _renderAttendingMacroArchive();" class="w-full text-xs border border-gray-200 rounded px-2 py-1.5" style="direction:ltr">
+        </div>
+      </div>
+      ${(f.quarter !== 'all' || f.from || f.to || f.residentId !== 'all') ? `
+        <button onclick="_attendingArchiveFilter = {quarter:'all',from:'',to:'',residentId:'all'}; _renderAttendingMacroArchive();" class="text-xs text-purple-600 hover:underline mt-2">× איפוס פילטרים</button>
+      ` : ''}
+    </div>
+    ${body}
   `;
 }
 
@@ -8483,15 +8671,16 @@ function _renderAttendingMacroDrafts() {
 }
 
 function _renderAttendingMacroAllEvals() {
+  // v2.10.23: now shows CURRENT cycle only — archive is a separate tile
   const screen = document.getElementById('screen-attending-macro');
   if (!screen) return;
-  const s = _attendingMacroState();
-  const list = s.allEvals;
+  const cycleId = _getActiveCycle()?.id || _currentQuarterId();
+  const list = _attendingMacroCurrentCycleEvals();
 
   const body = list.length === 0 ? `
     <div class="text-center py-8">
       <div class="text-3xl mb-2">📋</div>
-      <div class="text-sm text-gray-500">לא מילאת עדיין הערכות תקופתיות</div>
+      <div class="text-sm text-gray-500">לא מילאת עדיין הערכות בתקופה ${escapeHtml(cycleId)}</div>
     </div>
   ` : `
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
