@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.27-dev';
+const APP_VERSION = '2.10.28-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.27 (Phase 3/4): AI Engine v2 — מנוע תובנות מבוסס dossier. 7 קטגוריות שאלה (procedure_feedback / standing / competency_deep / attending_patterns / department_status / resident_lookup / general). מנותב לפי תפקיד: מתמחה→נתונים אישיים בלבד + השוואת peer אנונימית; PD/רכזת→נתוני מחלקה מלאים; בכיר→דפוסי משוב משלו. הצעות AI מותאמות לתפקיד. Privacy gate: ללא חשיפת שמות/מספרים של מתמחים אחרים למתמחה.";
+const APP_VERSION_NOTES = "v2.10.28: Inbox — סדר קבוע (תקופת הערכה ← בקשות ← סיכומים ממתינים ← מוכנים לפגישה). Meeting Report bugfix — דוח פגישת סיכום עבד רק לחלק מהמתמחים: seed evals חסרים residentId. עכשיו inbox builder מתרגם residentName→id, ו-_collectResidentDossier עם fallback by name. דוח עכשיו נפתח לכל מתמחה שמוכן.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2543,8 +2543,18 @@ function getResidentCesareans(residentName) {
 // exposing to resident-scope (e.g., strip raw counts of others).
 // ═══════════════════════════════════════════════════════════════════
 function _collectResidentDossier(residentId, cycleId) {
-  const r = (typeof RESIDENTS !== 'undefined') ? RESIDENTS.find(x => x.id === residentId) : null;
-  if (!r) return null;
+  // v2.10.28: defensive lookup — fallback by name if id doesn't match
+  // (handles cases where caller passes residentName as id, or seed evals lack residentId)
+  let r = (typeof RESIDENTS !== 'undefined') ? RESIDENTS.find(x => x.id === residentId) : null;
+  if (!r && residentId && typeof RESIDENTS !== 'undefined') {
+    r = RESIDENTS.find(x => x.name === residentId);
+  }
+  if (!r) {
+    try { console.warn('[_collectResidentDossier] resident not found for id:', residentId); } catch(e){}
+    return null;
+  }
+  // Normalize residentId to real id for downstream use
+  residentId = r.id;
 
   // Resolve cycle context
   let activeCycle = null;
@@ -2593,10 +2603,13 @@ function _collectResidentDossier(residentId, cycleId) {
   const seen = new Set();
   const allEvals = [];
   [...rawHistory, ...seedEvals].forEach(h => {
-    const key = `${h.timestamp || h.date || 0}_${h.residentId || ''}_${h.type || ''}_${h.evaluatorId || ''}`;
+    const key = `${h.timestamp || h.date || 0}_${h.residentId || h.residentName || ''}_${h.type || ''}_${h.evaluatorId || h.evaluatorEmail || ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    if (h.residentId === residentId) allEvals.push(h);
+    // v2.10.28: match by id OR by name (seed data has only residentName)
+    const matchById = h.residentId && h.residentId === residentId;
+    const matchByName = !h.residentId && h.residentName === r.name;
+    if (matchById || matchByName) allEvals.push(h);
   });
 
   // Split by type and cycle
@@ -3678,12 +3691,16 @@ function _computePdInbox() {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
-  // ── 1. Cycle status — ALWAYS first ──
+  // v2.10.28: Fixed category order per user request:
+  //   1=cycle  2=requests  3=approvals  4=meeting
+  // Within each category, urgency still sorts (e.g., overdue > coverage).
+
+  // ── 1. Cycle status — category 1 (ALWAYS first) ──
   let activeCycle = null;
   try { activeCycle = _getActiveCycle(); } catch (e) {}
   if (!activeCycle) {
     items.push({
-      urgency: 100,
+      category: 1, urgency: 100,
       icon: '📅', color: 'amber',
       title: 'טרם נפתחה תקופת הערכה',
       sub: 'מומלץ לפתוח את הרבעון הנוכחי כדי שמתמחים ובכירים ידעו את היעד',
@@ -3695,7 +3712,7 @@ function _computePdInbox() {
     const dlFmt = _fmtDateIL(activeCycle.submissionDeadline);
     if (days === null) {
       items.push({
-        urgency: 50,
+        category: 1, urgency: 50,
         icon: '📅', color: 'green',
         title: `תקופת הערכה ${activeCycle.id} פתוחה`,
         sub: `${_cycleTypeLabel(activeCycle.cycleType)} · אין דדליין מוגדר`,
@@ -3703,7 +3720,7 @@ function _computePdInbox() {
       });
     } else if (days < 0) {
       items.push({
-        urgency: 95,
+        category: 1, urgency: 95,
         icon: '🚨', color: 'red',
         title: `דדליין ההגשה פג לפני ${Math.abs(days)} ימים`,
         sub: `תקופה ${activeCycle.id} · יעד ${dlFmt} · נעילה סופית: ${_fmtDateIL(activeCycle.hardLockDate)}`,
@@ -3711,7 +3728,7 @@ function _computePdInbox() {
       });
     } else if (days <= 7) {
       items.push({
-        urgency: 90,
+        category: 1, urgency: 90,
         icon: '⏰', color: 'amber',
         title: `דדליין ההגשה מתקרב — ${days === 0 ? 'היום!' : days + ' ימים נותרו'}`,
         sub: `תקופה ${activeCycle.id} · יעד ${dlFmt}`,
@@ -3719,7 +3736,7 @@ function _computePdInbox() {
       });
     } else {
       items.push({
-        urgency: 40,
+        category: 1, urgency: 40,
         icon: '📅', color: 'green',
         title: `תקופת הערכה ${activeCycle.id} פתוחה`,
         sub: `יעד ${dlFmt} · ${days} ימים נותרו · ${_cycleTypeLabel(activeCycle.cycleType).split(' ')[0]}`,
@@ -3728,16 +3745,27 @@ function _computePdInbox() {
     }
   }
 
-  // ── 2. Eval-requests coverage — sent to N out of M residents ──
+  // ── 2. Eval-requests coverage — category 2 ──
   try {
     const reqs = _getEvalRequests().filter(r => r.status === 'open');
     const residentsWithReq = new Set(reqs.map(r => r.residentId));
     const totalResidents = RESIDENTS.length;
     const withCount = residentsWithReq.size;
     const withoutCount = totalResidents - withCount;
+    // Overdue first (more urgent), then coverage
+    const overdue = reqs.filter(r => r.deadline && r.deadline < todayIso);
+    if (overdue.length > 0) {
+      items.push({
+        category: 2, urgency: 80,
+        icon: '🚨', color: 'red',
+        title: `${overdue.length} ${overdue.length === 1 ? 'בקשת הערכה פגה' : 'בקשות הערכה פגו'}`,
+        sub: 'דדליין עבר. שקול/י שליחת תזכורת או הארכת דדליין.',
+        action: { label: 'פתח בקשות ←', onclick: "navigateTo('eval-requests')" }
+      });
+    }
     if (withoutCount > 0) {
       items.push({
-        urgency: 70,
+        category: 2, urgency: 70,
         icon: '📥', color: 'amber',
         title: `טרם נשלחו בקשות הערכה ל-${withoutCount} ${withoutCount === 1 ? 'מתמחה' : 'מתמחים'}`,
         sub: `נשלחו: ${withCount}/${totalResidents}`,
@@ -3745,36 +3773,41 @@ function _computePdInbox() {
       });
     } else if (totalResidents > 0) {
       items.push({
-        urgency: 25,
+        category: 2, urgency: 25,
         icon: '✉', color: 'green',
         title: `נשלחו בקשות הערכה לכל ${totalResidents} המתמחים`,
         sub: 'כל המתמחים מקבלים הערכות בתקופה הנוכחית',
         action: { label: 'צפה ←', onclick: "navigateTo('eval-requests')" }
       });
     }
-    // Overdue requests — separate urgent item
-    const overdue = reqs.filter(r => r.deadline && r.deadline < todayIso);
-    if (overdue.length > 0) {
-      items.push({
-        urgency: 80,
-        icon: '🚨', color: 'red',
-        title: `${overdue.length} ${overdue.length === 1 ? 'בקשת הערכה פגה' : 'בקשות הערכה פגו'}`,
-        sub: 'דדליין עבר. שקול/י שליחת תזכורת או הארכת דדליין.',
-        action: { label: 'פתח בקשות ←', onclick: "navigateTo('eval-requests')" }
-      });
-    }
   } catch (e) { /* ignore */ }
 
-  // ── 3. Macro summaries pending PD approval + 4. Ready-for-meeting ──
+  // ── 3. Macro summaries pending PD approval — category 3 ──
+  // ── 4. Ready-for-meeting — category 4 ──
   try {
     const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
     const all = [..._getLocalHistory(), ...seed];
     const pairs = new Map();
+
+    // v2.10.28: helper — resolve residentId from name (seed evals lack residentId)
+    const _residentByName = (name) => {
+      if (!name || typeof RESIDENTS === 'undefined') return null;
+      return RESIDENTS.find(r => r.name === name) || null;
+    };
+
     all.forEach(h => {
       if (h.type !== 'macro' || h.subType === 'draft') return;
-      const key = `${h.residentId}__${h.quarterId}`;
+      // v2.10.28: resolve residentId from residentName if missing
+      let rid = h.residentId;
+      if (!rid && h.residentName) {
+        const match = _residentByName(h.residentName);
+        if (match) rid = match.id;
+      }
+      if (!rid) return;  // can't track without a resident id
+
+      const key = `${rid}__${h.quarterId}`;
       const existing = pairs.get(key) || {
-        residentId: h.residentId, residentName: '',
+        residentId: rid, residentName: '',
         hasFinalAttending: false, hasSelf: false, hasApproved: false,
         attendingCount: 0, daysOldest: 0, qid: h.quarterId
       };
@@ -3799,7 +3832,7 @@ function _computePdInbox() {
       const oldest = pending.sort((a, b) => b.daysOldest - a.daysOldest)[0];
       const urgency = oldest.daysOldest > 14 ? 88 : oldest.daysOldest > 7 ? 75 : 60;
       items.push({
-        urgency,
+        category: 3, urgency,
         icon: '📝', color: oldest.daysOldest > 7 ? 'amber' : 'purple',
         title: `${pending.length} ${pending.length === 1 ? 'סיכום ממתין' : 'סיכומים ממתינים'} לאישור שלך`,
         sub: oldest.daysOldest > 0 ? `הוותיק ביותר: ${(oldest.residentName || '?').replace(/^ד"ר\s+/, '')} · לפני ${oldest.daysOldest} ימים` : 'הוגשו לאחרונה',
@@ -3813,11 +3846,10 @@ function _computePdInbox() {
       const names = readyForMeeting.slice(0, 2).map(p => (p.residentName || '?').replace(/^ד"ר\s+/, '')).join(', ');
       const more = readyForMeeting.length > 2 ? ` +${readyForMeeting.length - 2}` : '';
       items.push({
-        urgency: 65,
+        category: 4, urgency: 65,
         icon: '🤝', color: 'purple',
         title: `${readyForMeeting.length} ${readyForMeeting.length === 1 ? 'מתמחה' : 'מתמחים'} מוכן/ים לפגישת משוב`,
         sub: `${names}${more} · הערכה עצמית + 3+ בכירים הושלמו, מחכה לפגישת PD`,
-        // v2.10.25: pick resident + open meeting report
         action: { label: '📋 הפק דוח פגישה ←', onclick: "_openReadyForMeetingPicker()" }
       });
       // Stash the list for the picker
@@ -3825,7 +3857,14 @@ function _computePdInbox() {
     }
   } catch (e) { console.warn('inbox approval/meeting', e); }
 
-  return items.sort((a, b) => b.urgency - a.urgency).slice(0, 6);
+  // v2.10.28: Fixed category order (cycle → requests → approvals → meeting).
+  // Within each category, urgency desc (e.g., overdue request > coverage request).
+  return items.sort((a, b) => {
+    const catA = a.category || 99;
+    const catB = b.category || 99;
+    if (catA !== catB) return catA - catB;
+    return b.urgency - a.urgency;
+  }).slice(0, 6);
 }
 
 // v2.10.22: Red Flag storage — per-resident sticky flag with reason + audit
