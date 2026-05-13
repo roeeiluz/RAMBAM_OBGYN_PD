@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.23-dev';
+const APP_VERSION = '2.10.24-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.23: בכירים — אריחי 'משוב תקופתי' עודכנו ל-4 (פתח חדשה / טיוטות / הערכות בתקופה הנוכחית / ארכיון עם סינון). פאנל 'פעילות אחרונה' מתחת לטופס משוב מהיר עם current+archive cards.";
+const APP_VERSION_NOTES = "v2.10.24: 'היסטוריית משובים והערכות' הוסר מהsidebar (משובים=בתוך 'משוב מהיר', הערכות=בתוך 'הערכה תקופתית'). 'משוב תקופתי' חוזר ל'הערכה תקופתית'. שורות בפאנל 'פעילות אחרונה' לחיצות לפתיחת modal פרטים מלא. 'ראה את כל' מסונן למשובים שלי בלבד.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -2617,13 +2617,13 @@ const NAV_BY_ROLE = {
   pd: [
     { id: 'pd-dashboard',    label: 'דשבורד מחלקתי',           icon: '▦' },
     { id: 'attending-micro', label: 'משוב מהיר',                icon: '⚡' },
-    { id: 'attending-macro', label: 'משוב תקופתי',              icon: '◐' },
+    { id: 'attending-macro', label: 'הערכה תקופתית',            icon: '◐' },
     { id: 'eval-requests',   label: 'בקשות הערכה',              icon: '✉' },
     { id: 'pd-macro',        label: 'סיכום תקופתי (PD)',        icon: '✎' },
     { id: 'pd-cross',        label: 'חתך רוחבי',                icon: '⊞', divider: true },
     { id: 'pd-portfolio',    label: 'תיק אישי מתמחה',           icon: '👤' },
     { id: 'pd-data',         label: 'ניהול נתונים',             icon: '⤒', divider: true },
-    { id: 'eval-status',     label: 'היסטוריית משובים והערכות', icon: '◷' },
+    // v2.10.24: 'eval-status' removed from nav — embedded in micro/macro screens via recent-activity panels
     { id: 'pd-ai',           label: 'חיפוש חכם (AI)',           icon: '✦' },
     { id: 'pd-reports',      label: 'הפקת דוחות',               icon: '⤓' },
     { id: 'methodology',     label: 'מתודולוגיה',               icon: '📖', divider: true },
@@ -2631,7 +2631,7 @@ const NAV_BY_ROLE = {
   ],
   coordinator: [
     { id: 'pd-dashboard', label: 'דשבורד מחלקתי', icon: '▦' },
-    { id: 'eval-status',  label: 'היסטוריית משובים והערכות', icon: '◷' },
+    // v2.10.24: 'eval-status' removed from nav
     { id: 'eval-requests',label: 'בקשות הערכה',    icon: '✉' },
     { id: 'pd-portfolio',  label: 'תיק אישי מתמחה', icon: '👤' },
     { id: 'pd-macro',     label: 'הערכות תקופתיות', icon: '◐' },
@@ -2643,9 +2643,9 @@ const NAV_BY_ROLE = {
   attending: [
     { id: 'attending-micro',      label: 'משוב מהיר',    icon: '⚡' },
     { id: 'senior-requests',      label: 'בקשות משובים והערכותי', icon: '✉' },
-    { id: 'attending-macro',      label: 'משוב תקופתי',     icon: '◐' },
+    { id: 'attending-macro',      label: 'הערכה תקופתית',  icon: '◐' },
     { id: 'attending-procedures', label: 'פעולות מתמחים',   icon: '⊞' },
-    { id: 'eval-status',          label: 'היסטוריית משובים והערכות', icon: '◷' },
+    // v2.10.24: 'eval-status' removed — embedded in micro/macro screens
     { id: 'methodology',          label: 'מתודולוגיה',       icon: '📖', divider: true },
     { id: 'settings',             label: 'הגדרות',           icon: '⚙' },
   ],
@@ -2653,7 +2653,7 @@ const NAV_BY_ROLE = {
     { id: 'chief-micro',      label: 'משוב מהיר',     icon: '⚡' },
     { id: 'senior-requests',  label: 'בקשות משובים והערכותי', icon: '✉' },
     { id: 'chief-procedures', label: 'פעולות מתמחים',    icon: '⊞' },
-    { id: 'eval-status',      label: 'היסטוריית משובים והערכות', icon: '◷' },
+    // v2.10.24: 'eval-status' removed — embedded in micro/macro screens
     { id: 'chief-self-micro', label: 'משוב מהיר עצמי',   icon: '◔', divider: true },
     { id: 'chief-self',       label: 'הערכה תקופתית עצמית', icon: '◐' },
     { id: 'methodology',      label: 'מתודולוגיה',       icon: '📖', divider: true },
@@ -4670,7 +4670,7 @@ function _renderRecentMicros(role) {
   const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
   const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
   const allMicros = [..._getLocalHistory(), ...seed].filter(h =>
-    h.type === 'micro' && h.evaluatorId === uid && !h.selfAssessment
+    h.type === 'micro' && h.evaluatorId === uid && !h.selfAssessment && h.subType !== 'draft'
   );
   const currentPeriod = allMicros.filter(h => new Date(h.timestamp || h.date || 0).getTime() > ninetyDaysAgo);
   const archive = allMicros.filter(h => new Date(h.timestamp || h.date || 0).getTime() <= ninetyDaysAgo);
@@ -4697,15 +4697,17 @@ function _renderRecentMicros(role) {
             <div class="space-y-1 text-xs text-gray-700 mb-2">
               ${preview.map(m => {
                 const rname = (m.residentName || '').replace(/^ד"ר\s+/, '') || '?';
-                return `<div class="flex items-center gap-2 py-0.5 border-b border-gray-50">
+                // v2.10.24: clickable row → opens detail modal
+                return `<button onclick="_openMicroDetailById('${escapeAttr(m.timestamp)}', '${escapeAttr(m.residentId || '')}')" class="w-full text-right flex items-center gap-2 py-1 px-1.5 border-b border-gray-50 hover:bg-${accent}-50 rounded transition">
                   <span class="text-gray-500 text-[10px]">${_fmtDateIL(m.timestamp)}</span>
                   <span class="truncate flex-1">${escapeHtml(rname)}</span>
                   <span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">${escapeHtml(m.categoryLabel || m.category || '')}</span>
-                </div>`;
+                  <span class="text-${accent}-500">←</span>
+                </button>`;
               }).join('')}
             </div>
           ` : '<div class="text-xs text-gray-400 py-2">עדיין לא נתת משובים מהירים בתקופה הזו</div>'}
-          ${currentPeriod.length > 0 ? `<button onclick="navigateTo('eval-status')" class="text-xs text-${accent}-600 hover:underline">ראה את כל ${currentPeriod.length} ←</button>` : ''}
+          ${currentPeriod.length > 0 ? `<button onclick="_openMyMicrosHistory()" class="text-xs text-${accent}-600 hover:underline">ראה את כל ${currentPeriod.length} שלך ←</button>` : ''}
         </div>
 
         <!-- Archive card -->
@@ -4715,12 +4717,51 @@ function _renderRecentMicros(role) {
             <span class="text-lg font-bold text-gray-700">${archive.length}</span>
           </div>
           <div class="text-xs text-gray-500 mb-2">${archive.length === 0 ? 'אין משובים בארכיון עדיין' : `${archive.length} משובים מהיר/ים שניתנו לפני יותר מ-90 ימים`}</div>
-          ${archive.length > 0 ? `<button onclick="navigateTo('eval-status')" class="text-xs text-gray-600 hover:underline">פתח היסטוריה מלאה ←</button>` : ''}
+          ${archive.length > 0 ? `<button onclick="_openMyMicrosHistory()" class="text-xs text-gray-600 hover:underline">פתח היסטוריה מלאה ←</button>` : ''}
         </div>
 
       </div>
     </div>
   `;
+}
+
+// v2.10.24: open a single micro feedback in a detail modal
+function _openMicroDetailById(timestamp, residentId) {
+  const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined' ? DEMO_SEED_EVALUATIONS : []);
+  const all = [..._getLocalHistory(), ...seed];
+  const m = all.find(h => h.timestamp === timestamp && h.residentId === residentId && h.type === 'micro');
+  if (!m) { showToast('המשוב לא נמצא', 'error'); return; }
+  const rname = (m.residentName || '').replace(/^ד"ר\s+/, '') || '?';
+  const modal = document.createElement('div');
+  modal.id = 'micro-detail-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl max-w-lg w-full p-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs ${_evalTypeBg(m)} px-2 py-0.5 rounded-full">${_evalTypeLabel(m)}</span>
+            <span class="text-xs text-gray-500">${_fmtDateIL(m.timestamp)}</span>
+          </div>
+          <div class="text-sm font-medium">${escapeHtml(rname)} · ${escapeHtml(m.categoryLabel || m.category || '')}</div>
+        </div>
+        <button onclick="document.getElementById('micro-detail-modal').remove()" class="text-gray-400 hover:text-gray-600 text-xl">×</button>
+      </div>
+      <div class="text-xs text-gray-700 space-y-2">
+        ${_renderEvalDetailContent(m)}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+// v2.10.24: navigate to eval-status pre-filtered to MY micros
+function _openMyMicrosHistory() {
+  _evalStatusEvaluatorId = currentUser?.id || '';
+  _evalStatusFilter = 'micro_closed';
+  _evalStatusShowAll = true;
+  navigateTo('eval-status');
 }
 
 function renderMicroForm(role) {
@@ -5050,6 +5091,7 @@ let _evalStatusShowAll = false; // false = 10 latest, true = show all matching f
 let _evalStatusDateFrom = null;
 let _evalStatusDateTo = null;
 let _evalStatusQuarter = ''; // empty = all quarters
+let _evalStatusEvaluatorId = ''; // v2.10.24: limit to specific evaluator (empty = all)
 
 function renderEvalStatus() {
   const screenId = 'screen-eval-status';
@@ -5094,6 +5136,11 @@ function renderEvalStatus() {
     items = items.filter(i => i.quarterId === _evalStatusQuarter);
   }
 
+  // v2.10.24: optional evaluator filter (for "see all my micros" navigation)
+  if (_evalStatusEvaluatorId) {
+    items = items.filter(i => i.evaluatorId === _evalStatusEvaluatorId);
+  }
+
   // ── Date range filter (v2.9.14: only applies if date range explicitly set) ──
   if (_evalStatusDateFrom || _evalStatusDateTo) {
     const fromTs = _evalStatusDateFrom ? new Date(_evalStatusDateFrom).getTime() : 0;
@@ -5130,11 +5177,19 @@ function renderEvalStatus() {
   // ── Build quarter list (unique quarterIds from all items, sorted desc) ──
   const allQuarters = [...new Set(merged.map(h => h.quarterId).filter(Boolean))].sort((a,b) => b.localeCompare(a));
 
+  // v2.10.24: when filtered to a specific evaluator (e.g. via "see all my micros"), surface that scope + a clear button
+  const evaluatorFilterBadge = _evalStatusEvaluatorId
+    ? `<div class="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-3 flex items-center gap-2 text-xs">
+         <span class="text-blue-700">🔍 מסונן ל-<strong>${escapeHtml(_resolveEvaluatorName(_evalStatusEvaluatorId, currentUser?.name))}</strong></span>
+         <button onclick="_evalStatusEvaluatorId=''; renderEvalStatus();" class="text-blue-600 hover:underline mr-auto">× הסר סינון</button>
+       </div>` : '';
+
   screen.innerHTML = `
     <div class="mb-5">
       <h1 class="text-lg font-semibold">היסטוריית משובים והערכות</h1>
       <p class="text-xs text-gray-500 mt-0.5">${isPd ? 'מעקב אחרי כל ההערכות במחלקה' : 'מעקב אחרי ההערכות שלי'}</p>
     </div>
+    ${evaluatorFilterBadge}
 
     <!-- v2.9.14: 5 filter chips -->
     <div class="flex flex-wrap gap-2 mb-3">
