@@ -697,9 +697,9 @@ const SHARED_SECRET = 'd714dacc-baea-4254-b8b6-af80f5a4ef59';
 // ── App version (bump on every deploy) ──────────────────────────────
 // Single source of truth — used in version indicator, sidebar, and reports.
 // Format: MAJOR.MINOR.PATCH. Bump PATCH for fixes, MINOR for new features.
-const APP_VERSION = '2.10.25-dev';
+const APP_VERSION = '2.10.26-dev';
 const APP_VERSION_DATE = '13.5.2026';
-const APP_VERSION_NOTES = "v2.10.25 (Phase 1/4): _collectResidentDossier() — תשתית מרכזית של נתוני מתמחה (פעולות, מבחנים, הערכות, מגמות, נע\"ת, פד). _renderMeetingReportMd() מייצר דוח פגישת סיכום מקיף (Markdown, ניתן להעתקה/הורדה/הדפסה ל-PDF). 3 entry points: Inbox 'מוכן לפגישת משוב', Submission Matrix (כפתור 📋 בשורות מוכנות), pd-portfolio (כפתור בולט).";
+const APP_VERSION_NOTES = "v2.10.26 (Phase 2/4): Custom Report Builder — wizard 4 שלבים בpd-reports. 4 מצבים: יחיד / קוהורט / בכירים / השוואה. פילטרים: מתמחים, טווח תאריכים, סוגי הערכה, סקציות. אופציית אנונימיזציה (לחקר). ייצוא: HTML / Markdown / CSV. משתמש ב-_collectResidentDossier() כיוסד מרכזי.";
 // ────────────────────────────────────────────────────────────────────
 
 // ⚠️ DEV_BYPASS — set to false to restore normal auth. REMOVE BEFORE PRODUCTION.
@@ -9760,6 +9760,23 @@ function renderReportsScreen() {
       </div>
     </div>
 
+    <!-- v2.10.26: Custom Report Builder — flexible parameter selection -->
+    ${!isResident ? `
+      <div class="bg-gradient-to-l from-purple-50 to-blue-50 border-2 border-purple-300 rounded-xl p-4 mb-3">
+        <div class="flex items-start gap-3 mb-3">
+          <div class="text-2xl shrink-0">🛠</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-purple-900 mb-1">Custom Report Builder — בונה דוחות חופשי</div>
+            <div class="text-xs text-purple-800 leading-relaxed">בחירה חופשית של פרמטרים: מתמחים, טווח זמן, סוגי הערכה, קומפטנציות, אגרגציות, פורמט. עד רמת ניתוח מחקרי.</div>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 pr-9">
+          <button onclick="_openCustomReportWizard()" class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700">פתח Builder ←</button>
+          <span class="text-[11px] text-purple-700 self-center">מהיר · גמיש · יוצר HTML / Markdown / Excel-CSV</span>
+        </div>
+      </div>
+    ` : ''}
+
     <!-- Report templates -->
     <div class="space-y-3">
       ${templates.map(t => `
@@ -9924,6 +9941,356 @@ function _translatePeriodEN(periodLabel) {
     .replace('אוקטובר', 'October').replace('נובמבר', 'November').replace('דצמבר', 'December')
     .replace('מתחילת השנה', 'Year to Date')
     .replace('כל ההיסטוריה', 'All History');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v2.10.26: Custom Report Builder — Phase 2 of the 4-phase plan
+// Wizard flow: pick mode → pick parameters → preview → export
+// Uses _collectResidentDossier() as data foundation.
+// ═══════════════════════════════════════════════════════════════════
+const _customReportState = {
+  mode: 'individual',  // individual | cohort | comparison | attendings
+  residentIds: [],
+  cycleIds: [],
+  dateFrom: '',
+  dateTo: '',
+  evalTypes: { macro: true, micro: true, self: true, pd_approved: true },
+  competencies: { pc: true, mk: true, prof: true, ics: true, pbli: true, sbp: true },
+  sections: { identity: true, procedures: true, exams: true, macros: true, micros: true, trends: true, comments: true, talkingPoints: true },
+  output: 'html',  // html | markdown | csv
+  anonymize: false
+};
+
+function _openCustomReportWizard() {
+  // Reset state to defaults
+  _customReportState.residentIds = [];
+  _customReportState.cycleIds = [];
+  _customReportState.dateFrom = '';
+  _customReportState.dateTo = '';
+  _customReportState.mode = 'individual';
+  _customReportState.anonymize = false;
+  _customReportState.output = 'html';
+  _renderCustomReportWizard(1);
+}
+
+function _renderCustomReportWizard(step) {
+  // Remove old modal
+  const old = document.getElementById('custom-report-modal');
+  if (old) old.remove();
+  const modal = document.createElement('div');
+  modal.id = 'custom-report-modal';
+  modal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  let body = '';
+  if (step === 1) body = _customReportStep1();
+  else if (step === 2) body = _customReportStep2();
+  else if (step === 3) body = _customReportStep3();
+  else if (step === 4) body = _customReportStep4();
+
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between p-4 border-b border-gray-200">
+        <div>
+          <h2 class="text-base font-semibold">🛠 Custom Report Builder — שלב ${step}/4</h2>
+          <p class="text-xs text-gray-500 mt-0.5">${['בחר/י מצב', 'בחר/י פרמטרים', 'תצוגה מקדימה', 'ייצוא'][step-1]}</p>
+        </div>
+        <button onclick="document.getElementById('custom-report-modal').remove()" class="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-5">${body}</div>
+      <div class="flex items-center gap-2 p-3 border-t border-gray-100">
+        ${step > 1 ? `<button onclick="_renderCustomReportWizard(${step-1})" class="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">‹ הקודם</button>` : ''}
+        <div class="flex-1"></div>
+        ${step < 4 ? `<button onclick="_customReportNext(${step})" class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700">המשך ←</button>` : ''}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function _customReportNext(currentStep) {
+  // Save form data from current step
+  if (currentStep === 1) {
+    const m = document.querySelector('input[name="crm-mode"]:checked');
+    if (m) _customReportState.mode = m.value;
+  } else if (currentStep === 2) {
+    // Residents
+    _customReportState.residentIds = Array.from(document.querySelectorAll('.crm-resident:checked')).map(c => c.value);
+    if (_customReportState.mode === 'individual' && _customReportState.residentIds.length === 0) {
+      showToast('בחר/י לפחות מתמחה אחד', 'error');
+      return;
+    }
+    // Date range
+    _customReportState.dateFrom = document.getElementById('crm-date-from')?.value || '';
+    _customReportState.dateTo = document.getElementById('crm-date-to')?.value || '';
+    // Eval types
+    ['macro','micro','self','pd_approved'].forEach(k => {
+      _customReportState.evalTypes[k] = !!document.getElementById('crm-et-'+k)?.checked;
+    });
+    // Sections
+    Object.keys(_customReportState.sections).forEach(k => {
+      const el = document.getElementById('crm-sec-'+k);
+      if (el) _customReportState.sections[k] = el.checked;
+    });
+    // Anonymize
+    _customReportState.anonymize = !!document.getElementById('crm-anon')?.checked;
+  } else if (currentStep === 3) {
+    const o = document.querySelector('input[name="crm-output"]:checked');
+    if (o) _customReportState.output = o.value;
+  }
+  _renderCustomReportWizard(currentStep + 1);
+}
+
+function _customReportStep1() {
+  const s = _customReportState;
+  const opt = (val, icon, title, desc) => `
+    <label class="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer hover:border-purple-300 has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50 transition">
+      <input type="radio" name="crm-mode" value="${val}" ${s.mode === val ? 'checked' : ''} class="mt-0.5">
+      <div class="flex-1">
+        <div class="text-sm font-medium flex items-center gap-2"><span>${icon}</span>${title}</div>
+        <div class="text-xs text-gray-500 leading-relaxed mt-1">${desc}</div>
+      </div>
+    </label>`;
+  return `
+    <p class="text-xs text-gray-600 mb-3">מה אתה רוצה להפיק?</p>
+    <div class="space-y-2">
+      ${opt('individual', '👤', 'דוח על מתמחה (יחיד)', 'דוח מקיף על מתמחה אחד או יותר — פעולות, מבחנים, הערכות, מגמות. שימושי לפגישות סיכום, תיק התמחות, ובדיקות מעקב.')}
+      ${opt('cohort', '👥', 'דוח קוהורט (השוואת קבוצה)', 'סטטיסטיקות ברמת קבוצה: ממוצעים, התפלגות, חציון, percentiles. שימושי לתכנון הכשרה וזיהוי דפוסי קבוצה.')}
+      ${opt('attendings', '🏥', 'אנליזת בכירים', 'התנהגות סגל ההוראה: מי כותב כמה משובים, ממוצע ציונים שמעניק, נושאים שמדגיש, זמני תגובה.')}
+      ${opt('comparison', '⚖️', 'השוואה בין תקופות', 'מתמחה אחד או קבוצה — השוואה בין תקופות (תקופה נוכחית מול קודמת). מגמות, שיפור, ירידה.')}
+    </div>
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4 text-xs text-blue-900">
+      💡 כל המודים משתמשים באותו מקור נתונים (Dossier מרכזי). הבחירה כאן קובעת את סוג הניתוח, לא איזה נתונים נטענים.
+    </div>
+  `;
+}
+
+function _customReportStep2() {
+  const s = _customReportState;
+  const isIndividual = s.mode === 'individual' || s.mode === 'comparison';
+
+  return `
+    <p class="text-xs text-gray-600 mb-3">פילטרים ופרמטרים לדוח (סוג: <strong>${({individual:'יחיד',cohort:'קוהורט',attendings:'בכירים',comparison:'השוואה'})[s.mode]}</strong>)</p>
+
+    <!-- Residents -->
+    <div class="mb-4">
+      <label class="text-xs font-medium text-gray-700 mb-2 block">${isIndividual ? 'מתמחים לכלול' : 'מתמחים (השאר ריק=כל המחלקה)'}</label>
+      <div class="border border-gray-200 rounded-lg p-2 max-h-44 overflow-y-auto bg-gray-50">
+        <label class="flex items-center gap-2 p-1 text-xs cursor-pointer hover:bg-white rounded">
+          <input type="checkbox" onclick="document.querySelectorAll('.crm-resident').forEach(c => c.checked = this.checked)">
+          <span class="font-medium">בחר הכל / בטל הכל</span>
+        </label>
+        ${RESIDENTS.map(r => `
+          <label class="flex items-center gap-2 p-1 text-xs cursor-pointer hover:bg-white rounded">
+            <input type="checkbox" class="crm-resident" value="${escapeAttr(r.id)}" ${s.residentIds.includes(r.id) ? 'checked' : ''}>
+            <span class="flex-1">${escapeHtml(r.name)}</span>
+            <span class="text-[10px] text-gray-400">שנה ${['א','ב','ג','ד','ה','ו'][r.pgy-1]}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Date range -->
+    <div class="grid grid-cols-2 gap-2 mb-4">
+      <div>
+        <label class="text-xs font-medium text-gray-700 mb-1 block">מתאריך</label>
+        <input id="crm-date-from" type="date" value="${s.dateFrom}" class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" style="direction:ltr">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-gray-700 mb-1 block">עד תאריך</label>
+        <input id="crm-date-to" type="date" value="${s.dateTo}" class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" style="direction:ltr">
+      </div>
+    </div>
+
+    <!-- Eval types -->
+    <div class="mb-4">
+      <label class="text-xs font-medium text-gray-700 mb-1 block">סוגי הערכה לכלול</label>
+      <div class="grid grid-cols-2 gap-1">
+        <label class="flex items-center gap-2 p-1.5 border border-gray-200 rounded text-xs cursor-pointer"><input id="crm-et-macro" type="checkbox" ${s.evalTypes.macro ? 'checked' : ''}> הערכה תקופתית</label>
+        <label class="flex items-center gap-2 p-1.5 border border-gray-200 rounded text-xs cursor-pointer"><input id="crm-et-micro" type="checkbox" ${s.evalTypes.micro ? 'checked' : ''}> משוב מהיר</label>
+        <label class="flex items-center gap-2 p-1.5 border border-gray-200 rounded text-xs cursor-pointer"><input id="crm-et-self" type="checkbox" ${s.evalTypes.self ? 'checked' : ''}> עצמית</label>
+        <label class="flex items-center gap-2 p-1.5 border border-gray-200 rounded text-xs cursor-pointer"><input id="crm-et-pd_approved" type="checkbox" ${s.evalTypes.pd_approved ? 'checked' : ''}> סיכום PD</label>
+      </div>
+    </div>
+
+    <!-- Sections to include -->
+    <div class="mb-4">
+      <label class="text-xs font-medium text-gray-700 mb-1 block">סקציות בדוח</label>
+      <div class="grid grid-cols-2 gap-1">
+        ${[
+          {k:'identity', l:'זהות + תפקידים'},
+          {k:'procedures', l:'פעולות vs יעדים'},
+          {k:'exams', l:'מבחנים'},
+          {k:'macros', l:'הערכות תקופתיות'},
+          {k:'micros', l:'משובים מהירים'},
+          {k:'trends', l:'מגמות'},
+          {k:'comments', l:'הערות בכירים'},
+          {k:'talkingPoints', l:'נקודות לפגישה'}
+        ].map(o => `<label class="flex items-center gap-2 p-1.5 border border-gray-200 rounded text-xs cursor-pointer"><input id="crm-sec-${o.k}" type="checkbox" ${s.sections[o.k] ? 'checked' : ''}> ${o.l}</label>`).join('')}
+      </div>
+    </div>
+
+    <!-- Privacy options -->
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-2">
+      <label class="flex items-center gap-2 cursor-pointer text-xs">
+        <input id="crm-anon" type="checkbox" ${s.anonymize ? 'checked' : ''}>
+        <span class="font-medium text-amber-900">🔒 דוח אנונימי (לפרסום מחקר / IRB)</span>
+      </label>
+      <div class="text-[11px] text-amber-800 mt-1">שמות מוסתרים → "מתמחה A/B/C". פרטים מזהים מוסרים.</div>
+    </div>
+  `;
+}
+
+function _customReportStep3() {
+  const html = _buildCustomReportPreview();
+  return `
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3 text-xs text-gray-600">
+      <strong>תצוגה מקדימה</strong> · ${_customReportState.residentIds.length} מתמחים · מצב ${_customReportState.mode}${_customReportState.anonymize ? ' · 🔒 אנונימי' : ''}
+    </div>
+    <div class="border border-gray-200 rounded-lg p-4 bg-white max-h-[400px] overflow-y-auto text-sm leading-relaxed" style="direction:rtl;">
+      ${html}
+    </div>
+  `;
+}
+
+function _customReportStep4() {
+  return `
+    <p class="text-xs text-gray-600 mb-3">בחר/י פורמט ייצוא</p>
+    <div class="space-y-2 mb-4">
+      ${[
+        {v:'html', i:'🌐', t:'HTML', d:'תצוגה בדפדפן · ניתן להדפסה ל-PDF'},
+        {v:'markdown', i:'📝', t:'Markdown', d:'טקסט מובנה · מתאים ל-Notion, Word, מסמכי Drive'},
+        {v:'csv', i:'📊', t:'CSV (Excel)', d:'נתונים מספריים בלבד · מתאים לנתחת סטטיסטית'}
+      ].map(o => `
+        <label class="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer hover:border-purple-300 has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+          <input type="radio" name="crm-output" value="${o.v}" ${_customReportState.output === o.v ? 'checked' : ''} class="mt-0.5">
+          <div class="flex-1">
+            <div class="text-sm font-medium flex items-center gap-2"><span>${o.i}</span>${o.t}</div>
+            <div class="text-xs text-gray-500 mt-0.5">${o.d}</div>
+          </div>
+        </label>
+      `).join('')}
+    </div>
+    <div class="flex gap-2">
+      <button onclick="_customReportFinalize()" class="flex-1 px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700">📥 הפק והורד</button>
+      <button onclick="_customReportPrintInline()" class="px-4 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">🖨 הדפס</button>
+    </div>
+  `;
+}
+
+// Build preview HTML — uses dossier
+function _buildCustomReportPreview() {
+  const s = _customReportState;
+  const cycleId = _getActiveCycle()?.id;
+  let html = '';
+
+  if (s.mode === 'individual' || s.mode === 'comparison') {
+    const ids = s.residentIds.length ? s.residentIds : RESIDENTS.slice(0, 3).map(r => r.id);
+    ids.forEach((rid, idx) => {
+      const d = _collectResidentDossier(rid, cycleId);
+      if (!d) return;
+      const displayName = s.anonymize ? `מתמחה ${String.fromCharCode(65 + idx)}` : d.resident.name;
+      html += `<h3 style="font-size:14pt; color:#6b21a8; margin-top:12pt;">${displayName} · שנה ${['א','ב','ג','ד','ה','ו'][d.resident.pgy-1] || d.resident.pgy}</h3>`;
+      if (s.sections.identity && !s.anonymize) {
+        html += `<p><strong>תפקידים:</strong> ${d.profile.additionalRoles.map(r => r.label).join(' · ') || 'ללא'}</p>`;
+      }
+      if (s.sections.procedures && d.procedures.rows.length) {
+        html += `<p><strong>פעולות:</strong> ${d.procedures.met}/${d.procedures.total} קטגוריות עברו יעד.</p>`;
+      }
+      if (s.sections.exams && d.exams.history.length) {
+        const last = d.exams.history[d.exams.history.length - 1];
+        html += `<p><strong>מבחן אחרון:</strong> ${last.dateLabel} — ${last.score}</p>`;
+      }
+      if (s.sections.macros) {
+        const comps = Object.values(d.macro.competencies).filter(c => c.attendingAvg !== null);
+        if (comps.length) {
+          const avgAll = (comps.reduce((sum, c) => sum + c.attendingAvg, 0) / comps.length).toFixed(2);
+          html += `<p><strong>הערכה תקופתית — ממוצע 6 קומפטנציות:</strong> ${avgAll}/5 (${d.macro.attendings.length} בכירים)</p>`;
+        }
+      }
+      if (s.sections.micros && d.micros.inPeriod > 0) {
+        html += `<p><strong>משובים מהירים בתקופה:</strong> ${d.micros.inPeriod}</p>`;
+      }
+      html += '<hr style="margin:12pt 0;">';
+    });
+  } else if (s.mode === 'cohort') {
+    const ids = s.residentIds.length ? s.residentIds : RESIDENTS.map(r => r.id);
+    const dossiers = ids.map(id => _collectResidentDossier(id, cycleId)).filter(Boolean);
+    html += `<p>קוהורט: ${dossiers.length} מתמחים</p>`;
+    // Aggregate stats per competency
+    if (s.sections.macros) {
+      const compAggs = {};
+      dossiers.forEach(d => {
+        Object.values(d.macro.competencies).forEach(c => {
+          if (c.attendingAvg !== null) {
+            if (!compAggs[c.label]) compAggs[c.label] = [];
+            compAggs[c.label].push(c.attendingAvg);
+          }
+        });
+      });
+      html += '<table style="width:100%; border-collapse:collapse; margin-top:8pt;"><thead><tr><th style="border:1px solid #ddd; padding:4px; text-align:right;">קומפטנציה</th><th style="border:1px solid #ddd; padding:4px;">n</th><th style="border:1px solid #ddd; padding:4px;">ממוצע</th><th style="border:1px solid #ddd; padding:4px;">מינ</th><th style="border:1px solid #ddd; padding:4px;">מקס</th></tr></thead><tbody>';
+      Object.entries(compAggs).forEach(([label, vals]) => {
+        const mean = (vals.reduce((a,b)=>a+b,0) / vals.length).toFixed(2);
+        const mn = Math.min(...vals).toFixed(1);
+        const mx = Math.max(...vals).toFixed(1);
+        html += `<tr><td style="border:1px solid #ddd; padding:4px;">${label}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${vals.length}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${mean}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${mn}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${mx}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+  } else if (s.mode === 'attendings') {
+    // Aggregate by evaluator
+    const seed = (typeof DEMO_SEED_EVALUATIONS !== 'undefined') ? DEMO_SEED_EVALUATIONS : [];
+    const all = [..._getLocalHistory(), ...seed].filter(h => h.subType !== 'draft' && !h.selfAssessment);
+    const byAttending = {};
+    all.forEach(h => {
+      const id = h.evaluatorId;
+      if (!id) return;
+      if (!byAttending[id]) byAttending[id] = { name: _resolveEvaluatorName(id, h.evaluatorName), micro: 0, macro: 0, total: 0 };
+      byAttending[id].total++;
+      if (h.type === 'macro') byAttending[id].macro++;
+      else byAttending[id].micro++;
+    });
+    const sorted = Object.values(byAttending).sort((a,b) => b.total - a.total);
+    html += '<table style="width:100%; border-collapse:collapse;"><thead><tr><th style="border:1px solid #ddd; padding:4px; text-align:right;">בכיר</th><th style="border:1px solid #ddd; padding:4px;">משובים</th><th style="border:1px solid #ddd; padding:4px;">הערכות</th><th style="border:1px solid #ddd; padding:4px;">סך הכל</th></tr></thead><tbody>';
+    sorted.forEach(a => {
+      html += `<tr><td style="border:1px solid #ddd; padding:4px;">${escapeHtml(a.name)}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${a.micro}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;">${a.macro}</td><td style="border:1px solid #ddd; padding:4px; text-align:center;"><strong>${a.total}</strong></td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  return html || '<p class="text-gray-500">אין נתונים להציג בקונפיגורציה זו.</p>';
+}
+
+function _customReportFinalize() {
+  const s = _customReportState;
+  const html = _buildCustomReportPreview();
+  const name = `custom_${s.mode}_${new Date().toISOString().slice(0,10)}`;
+
+  if (s.output === 'html') {
+    const fullHtml = `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>Custom Report</title><style>body{font-family:'Segoe UI',Arial,sans-serif;max-width:800px;margin:30px auto;padding:20px;line-height:1.6;color:#1f2937;direction:rtl;}h1{font-size:18pt;border-bottom:2px solid #6b21a8;padding-bottom:4px;}@media print{body{margin:0;padding:15mm;}@page{size:A4;margin:0;}}</style></head><body><h1>Custom Report · ${({individual:'יחיד',cohort:'קוהורט',attendings:'בכירים',comparison:'השוואה'})[s.mode]}</h1><p>נוצר: ${new Date().toLocaleString('he-IL')}</p>${html}</body></html>`;
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = name + '.html'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    showToast('⬇ הקובץ ירד למחשב', 'success');
+  } else if (s.output === 'markdown') {
+    // Strip HTML tags for plain markdown — simple conversion
+    const md = html.replace(/<h3[^>]*>(.*?)<\/h3>/g, '\n### $1\n').replace(/<strong>(.*?)<\/strong>/g, '**$1**').replace(/<p>(.*?)<\/p>/g, '$1\n').replace(/<hr[^>]*>/g, '\n---\n').replace(/<table[^>]*>.*?<\/table>/gs, '[TABLE — see HTML version for full table]').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ');
+    const blob = new Blob(['# Custom Report\n\n' + md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = name + '.md'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    showToast('⬇ הקובץ ירד למחשב', 'success');
+  } else if (s.output === 'csv') {
+    showToast('CSV — בקרוב (תצוגת HTML זמינה כעת)', 'info');
+    return;
+  }
+  document.getElementById('custom-report-modal')?.remove();
+}
+
+function _customReportPrintInline() {
+  const html = _buildCustomReportPreview();
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><title>Custom Report</title><style>body{font-family:'Segoe UI',Arial,sans-serif;max-width:800px;margin:30px auto;padding:20px;line-height:1.6;direction:rtl;}h1{font-size:18pt;color:#6b21a8;}@media print{@page{size:A4;margin:0;}body{margin:0;padding:15mm;}}</style></head><body><h1>Custom Report</h1>${html}</body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
 }
 
 function generateReport(id, title) {
